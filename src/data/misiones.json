@@ -1,0 +1,1908 @@
+[
+  {
+    "id": "1",
+    "title": "Pan robado en la aldea",
+    "description": "Un nino roba pan en el mercado. El panadero pide castigo.",
+    "type": "vida",
+    "minLevel": 1,
+    "maxLevel": 100,
+    "minReputation": 0,
+    "options": [
+      {
+        "id": "1o1",
+        "text": "Pagar el pan con tus monedas.",
+        "effects": {
+          "carisma": 1,
+          "reputacion": 1
+        },
+        "response": "Muestras generosidad pagando la deuda. El pueblo nota tu buen corazon."
+      },
+      {
+        "id": "1o2",
+        "text": "Perseguir al nino para recuperarlo.",
+        "effects": {
+          "agilidad": 1,
+          "vida": -4
+        },
+        "response": "Corres tras el nino pero sufres una caida violenta al intentar interceptarlo."
+      },
+      {
+        "id": "1o3",
+        "text": "Ignorar el conflicto y seguir camino.",
+        "effects": {
+          "reputacion": -1
+        },
+        "response": "Prefieres no meterte, dejando una mala impresion entre los presentes."
+      }
+    ]
+  },
+  {
+    "id": "2",
+    "title": "Pozo contaminado",
+    "description": "El agua del pozo huele mal y los vecinos discuten.",
+    "type": "vida",
+    "minLevel": 1,
+    "maxLevel": 100,
+    "minReputation": 0,
+    "options": [
+      {
+        "id": "2o1",
+        "text": "Bajar al pozo para limpiarlo.",
+        "effects": {
+          "fuerza": 1,
+          "reputacion": 1,
+          "vida": -5
+        },
+        "response": "Te esfuerzas removiendo escombros venenosos, terminando exhausto pero victorioso."
+      },
+      {
+        "id": "2o2",
+        "text": "Convencer al herrero de ayudar.",
+        "effects": {
+          "carisma": 1,
+          "reputacion": 1
+        },
+        "response": "Tus palabras logran persuadir al herrero para usar sus herramientas."
+      },
+      {
+        "id": "2o3",
+        "text": "Cobrar por arreglar el problema.",
+        "effects": {
+          "reputacion": -2,
+          "dano": 1
+        },
+        "response": "Exiges monedas por la ayuda, lo cual genera rencor entre la gente."
+      }
+    ]
+  },
+  {
+    "id": "3",
+    "title": "Duelo de taberna",
+    "description": "Dos mercenarios te retan por una vieja ofensa.",
+    "type": "vida",
+    "minLevel": 1,
+    "maxLevel": 100,
+    "minReputation": 0,
+    "options": [
+      {
+        "id": "3o1",
+        "text": "Aceptar el duelo.",
+        "effects": {
+          "reputacion": 1,
+          "vida": -6,
+          "dano": 1
+        },
+        "response": "Peleas con ferocidad y ganas respeto, aunque sales magullado."
+      },
+      {
+        "id": "3o2",
+        "text": "Calmar la situacion con palabras.",
+        "effects": {
+          "carisma": 2,
+          "reputacion": 1
+        },
+        "response": "Logras desescalar el conflicto invitando una ronda y hablando con temple."
+      },
+      {
+        "id": "3o3",
+        "text": "Escabullirte por la puerta trasera.",
+        "effects": {
+          "agilidad": 1,
+          "reputacion": -1
+        },
+        "response": "Esquivas la pelea sigilosamente antes de que vuelen los puñetazos."
+      }
+    ]
+  },
+  {
+    "id": "4",
+    "title": "Carta sellada",
+    "description": "Un mensajero cae herido y te entrega una carta urgente.",
+    "type": "vida",
+    "minLevel": 1,
+    "maxLevel": 100,
+    "minReputation": 0,
+    "options": [
+      {
+        "id": "4o1",
+        "text": "Llevar la carta sin abrirla.",
+        "effects": {
+          "reputacion": 2
+        },
+        "response": "Cumples con tu deber de forma honorable y te ganas la confianza de la orden."
+      },
+      {
+        "id": "4o2",
+        "text": "Abrirla para conocer el riesgo.",
+        "effects": {
+          "agilidad": 1,
+          "reputacion": -1
+        },
+        "response": "Eschudriñas el mensaje rapidamente sin ser detectado, pero vulneras el honor."
+      },
+      {
+        "id": "4o3",
+        "text": "Vender el sello a un contrabandista.",
+        "effects": {
+          "reputacion": -2,
+          "dano": 1
+        },
+        "response": "Comercializas con el mensaje confidencial obteniendo beneficios dudososs."
+      }
+    ]
+  },
+  {
+    "id": "5",
+    "title": "Puente roto",
+    "description": "La unica salida del valle esta parcialmente destruida.",
+    "type": "vida",
+    "minLevel": 1,
+    "maxLevel": 100,
+    "minReputation": 0,
+    "options": [
+      {
+        "id": "5o1",
+        "text": "Repararlo con troncos.",
+        "effects": {
+          "fuerza": 1,
+          "vida": -4,
+          "defensa": 1
+        },
+        "response": "Cargas pesados troncos reforzando la estructura, resintiendote el cuerpo."
+      },
+      {
+        "id": "5o2",
+        "text": "Saltarlo por una roca estrecha.",
+        "effects": {
+          "agilidad": 2,
+          "vida": -6
+        },
+        "response": "Das un salto acrobatico arriesgado pero logras cruzar con exito."
+      },
+      {
+        "id": "5o3",
+        "text": "Esperar a un grupo mas grande.",
+        "effects": {
+          "reputacion": -1,
+          "vida": 2
+        },
+        "response": "Descansas mientras aguardas, recuperando energia aunque perdiendo tiempo."
+      }
+    ]
+  },
+  {
+    "id": "6",
+    "title": "Reliquia en ruinas",
+    "description": "En una capilla abandonada hay una reliquia sin guardian.",
+    "type": "vida",
+    "minLevel": 1,
+    "maxLevel": 100,
+    "minReputation": 0,
+    "options": [
+      {
+        "id": "6o1",
+        "text": "Dejarla donde esta.",
+        "effects": {
+          "carisma": 1,
+          "reputacion": 2
+        },
+        "response": "Respetas el sitio sagrado, lo cual impresiona a los eruditos."
+      },
+      {
+        "id": "6o2",
+        "text": "Tomarla para venderla.",
+        "effects": {
+          "reputacion": -2,
+          "dano": 1
+        },
+        "response": "Profanas el lugar para obtener oro, ganando poder a costa de tu moral."
+      },
+      {
+        "id": "6o3",
+        "text": "Ocultarla mejor de posibles saqueadores.",
+        "effects": {
+          "agilidad": 1,
+          "defensa": 1
+        },
+        "response": "Usas tu maña para esconder el artefacto de ojos codiciosos."
+      }
+    ]
+  },
+  {
+    "id": "7",
+    "title": "Lluvia de flechas",
+    "description": "Bandidos emboscan una caravana frente a ti.",
+    "type": "vida",
+    "minLevel": 1,
+    "maxLevel": 100,
+    "minReputation": 0,
+    "options": [
+      {
+        "id": "7o1",
+        "text": "Cargar de frente.",
+        "effects": {
+          "fuerza": 1,
+          "reputacion": 1,
+          "vida": -8
+        },
+        "response": "Te lanzas con furia cortando las lineas enemigas a costa de varios cortes."
+      },
+      {
+        "id": "7o2",
+        "text": "Flanquear por el bosque.",
+        "effects": {
+          "agilidad": 1,
+          "dano": 1
+        },
+        "response": "Te mueves en sigilo por los arboles y tomas a los arqueadores por sorpresa."
+      },
+      {
+        "id": "7o3",
+        "text": "Negociar una retirada.",
+        "effects": {
+          "carisma": 1,
+          "reputacion": 1
+        },
+        "response": "Usa tu astucia verbal para convencer a los bandidos de replegarse."
+      }
+    ]
+  },
+  {
+    "id": "8",
+    "title": "Noche sin fogata",
+    "description": "La tormenta apaga tu campamento y baja la temperatura.",
+    "type": "vida",
+    "minLevel": 1,
+    "maxLevel": 100,
+    "minReputation": 0,
+    "options": [
+      {
+        "id": "8o1",
+        "text": "Buscar refugio en una cueva.",
+        "effects": {
+          "vida": -3,
+          "defensa": 1
+        },
+        "response": "El frio azota tus huesos antes de encontrar refugio, pero aprendes a cubrirte."
+      },
+      {
+        "id": "8o2",
+        "text": "Mantener guardia toda la noche.",
+        "effects": {
+          "agilidad": 1,
+          "reputacion": 1,
+          "vida": -5
+        },
+        "response": "Permaneces despierto combatiendo la helada y agudizando tus sentidos."
+      },
+      {
+        "id": "8o3",
+        "text": "Forzar marchas nocturnas para entrar en calor.",
+        "effects": {
+          "fuerza": 1,
+          "vida": -4
+        },
+        "response": "Avanzas a trote en la oscuridad fortaleciendo la musculatura a costa del sueño."
+      }
+    ]
+  },
+  {
+    "id": "9",
+    "title": "Juramento del herrero",
+    "description": "Un herrero anciano ofrece entrenarte una tarde.",
+    "type": "vida",
+    "minLevel": 1,
+    "maxLevel": 100,
+    "minReputation": 0,
+    "options": [
+      {
+        "id": "9o1",
+        "text": "Entrenar golpe y postura.",
+        "effects": {
+          "dano": 1,
+          "defensa": 1
+        },
+        "response": "Practicas el arte del martillo y la postura marcial con el veterano."
+      },
+      {
+        "id": "9o2",
+        "text": "Ayudarlo a vender armas.",
+        "effects": {
+          "carisma": 1,
+          "reputacion": 1
+        },
+        "response": "Le echas una mano en el mercado conversando amablemente con la clientela."
+      },
+      {
+        "id": "9o3",
+        "text": "Probar la temple de las espadas.",
+        "effects": {
+          "fuerza": 1,
+          "dano": 1
+        },
+        "response": "Pones a prueba la resistencia de las hojas en los muñecos de práctica."
+      }
+    ]
+  },
+  {
+    "id": "10",
+    "title": "Campanas del monasterio",
+    "description": "El abad pide ayuda para transportar provisiones.",
+    "type": "vida",
+    "minLevel": 1,
+    "maxLevel": 100,
+    "minReputation": 0,
+    "options": [
+      {
+        "id": "10o1",
+        "text": "Llevar los sacos solo.",
+        "effects": {
+          "fuerza": 2,
+          "vida": -4
+        },
+        "response": "Realizas un esfuerzo sobrehumano cargando las provisiones cuesta arriba."
+      },
+      {
+        "id": "10o2",
+        "text": "Organizar voluntarios.",
+        "effects": {
+          "carisma": 2,
+          "reputacion": 1
+        },
+        "response": "Coordinas a la gente del pueblo demostrando dotes de liderazgo."
+      },
+      {
+        "id": "10o3",
+        "text": "Pedir una bendicion a cambio.",
+        "effects": {
+          "vida": 2,
+          "defensa": 1
+        },
+        "response": "Aceptas cargar el grano a cambio de una racion sagrada que te da fuerzas."
+      }
+    ]
+  },
+  {
+    "id": "11",
+    "title": "Cueva de ecos",
+    "description": "Se oyen voces en una cueva con pasajes estrechos.",
+    "type": "vida",
+    "minLevel": 1,
+    "maxLevel": 100,
+    "minReputation": 0,
+    "options": [
+      {
+        "id": "11o1",
+        "text": "Entrar con antorcha.",
+        "effects": {
+          "vida": -4,
+          "defensa": 1
+        },
+        "response": "Avanzas con firmeza repeliendo la oscuridad, sufriendo quemaduras leves."
+      },
+      {
+        "id": "11o2",
+        "text": "Entrar en silencio total.",
+        "effects": {
+          "agilidad": 2
+        },
+        "response": "Deslices tu cuerpo en las sombras sin hacer el mas minimo ruido."
+      },
+      {
+        "id": "11o3",
+        "text": "Tirar una piedra para probar la reaccion.",
+        "effects": {
+          "reputacion": -1,
+          "dano": 1
+        },
+        "response": "Provocas que lo que habite dentro responda, evaluando el peligro."
+      }
+    ]
+  },
+  {
+    "id": "12",
+    "title": "Mercado negro",
+    "description": "Un comerciante ofrece venenos y atajos peligrosos.",
+    "type": "vida",
+    "minLevel": 1,
+    "maxLevel": 100,
+    "minReputation": 0,
+    "options": [
+      {
+        "id": "12o1",
+        "text": "Comprar un frasco de guerra.",
+        "effects": {
+          "reputacion": -1,
+          "dano": 2
+        },
+        "response": "Adquieres una sustancia peligrosa que potencia tu filo."
+      },
+      {
+        "id": "12o2",
+        "text": "Denunciar al comerciante.",
+        "effects": {
+          "carisma": 1,
+          "reputacion": 2
+        },
+        "response": "Alertas a los guardias locales librando a la ciudad de un criminal."
+      },
+      {
+        "id": "12o3",
+        "text": "Regatear una capa de camuflaje.",
+        "effects": {
+          "agilidad": 1,
+          "defensa": 1
+        },
+        "response": "Consigues un atavio discreto ideal para moverte entre las sombras."
+      }
+    ]
+  },
+  {
+    "id": "13",
+    "title": "Mensaje codificado",
+    "description": "Te entregan un pergamino con simbolos extraños.",
+    "type": "vida",
+    "minLevel": 1,
+    "maxLevel": 100,
+    "minReputation": 0,
+    "options": [
+      {
+        "id": "13o1",
+        "text": "Descifrarlo con paciencia.",
+        "effects": {
+          "carisma": 1,
+          "agilidad": 1
+        },
+        "response": "Dedicas horas a estudiar los glifos puliendo tu agudeza mental."
+      },
+      {
+        "id": "13o2",
+        "text": "Romper el sello y actuar rapido.",
+        "effects": {
+          "reputacion": -1,
+          "dano": 1
+        },
+        "response": "Fuerzas la apertura del pergamino desencadenando una respuesta agresiva."
+      },
+      {
+        "id": "13o3",
+        "text": "Llevarlo ante un erudito de la ciudad.",
+        "effects": {
+          "reputacion": 1,
+          "defensa": 1
+        },
+        "response": "Muestras el escrito a un sabio ganando su aprecio y consejo."
+      }
+    ]
+  },
+  {
+    "id": "14",
+    "title": "Fuga en la fortaleza",
+    "description": "Un preso afirma ser inocente y pide ayuda.",
+    "type": "vida",
+    "minLevel": 1,
+    "maxLevel": 100,
+    "minReputation": 0,
+    "options": [
+      {
+        "id": "14o1",
+        "text": "Investigar antes de actuar.",
+        "effects": {
+          "carisma": 1,
+          "defensa": 1
+        },
+        "response": "Analizas las pruebas con cautela descubriendo la verdad."
+      },
+      {
+        "id": "14o2",
+        "text": "Liberarlo en secreto.",
+        "effects": {
+          "agilidad": 1,
+          "reputacion": -1
+        },
+        "response": "Burlas los barrotes en silencio actuando como un proscrito."
+      },
+      {
+        "id": "14o3",
+        "text": "Entregarlo al capitan.",
+        "effects": {
+          "reputacion": 1,
+          "dano": 1
+        },
+        "response": "Aseguras las cadenas del prisionero ganandote la simpatia militar."
+      }
+    ]
+  },
+  {
+    "id": "15",
+    "title": "Torreón en llamas",
+    "description": "Un incendio avanza por un viejo torreon.",
+    "type": "vida",
+    "minLevel": 1,
+    "maxLevel": 100,
+    "minReputation": 0,
+    "options": [
+      {
+        "id": "15o1",
+        "text": "Entrar a rescatar a los atrapados.",
+        "effects": {
+          "reputacion": 3,
+          "vida": -8
+        },
+        "response": "Te adentras entre el fuego y las brasas quemandote pero salvando vidas."
+      },
+      {
+        "id": "15o2",
+        "text": "Coordinar cubos desde afuera.",
+        "effects": {
+          "carisma": 2,
+          "reputacion": 2
+        },
+        "response": "Diriges la brigada de cubos con voz firme evitando mas victimas."
+      },
+      {
+        "id": "15o3",
+        "text": "Crear un cortafuegos derribando madera.",
+        "effects": {
+          "fuerza": 2,
+          "vida": -3
+        },
+        "response": "Usas la fuerza bruta para voltear vigas y aislar las llamas."
+      }
+    ]
+  },
+  {
+    "id": "16",
+    "title": "Juramento de sangre",
+    "description": "Un noble exige lealtad total a su casa.",
+    "type": "vida",
+    "minLevel": 1,
+    "maxLevel": 100,
+    "minReputation": 0,
+    "options": [
+      {
+        "id": "16o1",
+        "text": "Aceptar el juramento.",
+        "effects": {
+          "reputacion": 1,
+          "defensa": 1
+        },
+        "response": "Prestas tu espada bajo el estandarte noble recibiendo proteccion."
+      },
+      {
+        "id": "16o2",
+        "text": "Rechazar y mantener libertad.",
+        "effects": {
+          "reputacion": -1,
+          "dano": 1
+        },
+        "response": "Rechazas la servidumbre eligiendo la senda de las armas independientes."
+      },
+      {
+        "id": "16o3",
+        "text": "Negociar un contrato temporal.",
+        "effects": {
+          "carisma": 1,
+          "reputacion": 1
+        },
+        "response": "Pactas tus servicios por un periodo corto demostrando audacia politica."
+      }
+    ]
+  },
+  {
+    "id": "17",
+    "title": "Sendero de cazadores",
+    "description": "Un grupo de cazadores pierde rastro de una bestia.",
+    "type": "vida",
+    "minLevel": 1,
+    "maxLevel": 100,
+    "minReputation": 0,
+    "options": [
+      {
+        "id": "17o1",
+        "text": "Rastrear huellas profundas.",
+        "effects": {
+          "fuerza": 1,
+          "agilidad": 1
+        },
+        "response": "Rastreas el terreno con determinacion hasta acorralar a la presa."
+      },
+      {
+        "id": "17o2",
+        "text": "Tender una trampa con carnada.",
+        "effects": {
+          "dano": 1,
+          "defensa": 1
+        },
+        "response": "Preparas una emboscada con la carnada perfecta cubriendo posiciones."
+      },
+      {
+        "id": "17o3",
+        "text": "Imitar el rugido para atraerla.",
+        "effects": {
+          "fuerza": 1,
+          "dano": 1
+        },
+        "response": "Provocas a la criatura para que salga de su escondite a pelear."
+      }
+    ]
+  },
+  {
+    "id": "18",
+    "title": "Robo en el santuario",
+    "description": "Desaparece una ofrenda de gran valor religioso.",
+    "type": "vida",
+    "minLevel": 1,
+    "maxLevel": 100,
+    "minReputation": 0,
+    "options": [
+      {
+        "id": "18o1",
+        "text": "Perseguir al ladron por tejados.",
+        "effects": {
+          "agilidad": 2,
+          "vida": -4
+        },
+        "response": "Te abalanzas por los tejados en una persecucion acróbatica."
+      },
+      {
+        "id": "18o2",
+        "text": "Interrogar testigos en la plaza.",
+        "effects": {
+          "carisma": 2,
+          "reputacion": 1
+        },
+        "response": "Preguntas con elegancia hasta atar los cabos sueltos del crimen."
+      },
+      {
+        "id": "18o3",
+        "text": "Bloquear las salidas de la ciudad.",
+        "effects": {
+          "reputacion": 1,
+          "defensa": 1
+        },
+        "response": "Coordina defensas rapidas para acorralar al culpable."
+      }
+    ]
+  },
+  {
+    "id": "19",
+    "title": "Muralla derrumbada",
+    "description": "Una seccion de muralla cae y deja la ciudad expuesta.",
+    "type": "vida",
+    "minLevel": 1,
+    "maxLevel": 100,
+    "minReputation": 0,
+    "options": [
+      {
+        "id": "19o1",
+        "text": "Defender la brecha tu solo.",
+        "effects": {
+          "vida": -7,
+          "defensa": 2
+        },
+        "response": "Sostienes la posicion contra los intrusos recibiendo duros golpes."
+      },
+      {
+        "id": "19o2",
+        "text": "Evacuar civiles primero.",
+        "effects": {
+          "carisma": 1,
+          "reputacion": 2
+        },
+        "response": "Guias a las familias a zonas seguras ganandote la bendicion popular."
+      },
+      {
+        "id": "19o3",
+        "text": "Montar una barricada provisional con escombros.",
+        "effects": {
+          "fuerza": 1,
+          "defensa": 1
+        },
+        "response": "Levantas piedras pesadas para frenar el paso de enemigos."
+      }
+    ]
+  },
+  {
+    "id": "20",
+    "title": "Pacto del bosque",
+    "description": "Druidas ofrecen ayuda a cambio de talar menos arboles.",
+    "type": "vida",
+    "minLevel": 1,
+    "maxLevel": 100,
+    "minReputation": 0,
+    "options": [
+      {
+        "id": "20o1",
+        "text": "Apoyar su causa.",
+        "effects": {
+          "reputacion": 2,
+          "vida": 4
+        },
+        "response": "Defiendes la naturaleza y los druidas curan tus dolencias."
+      },
+      {
+        "id": "20o2",
+        "text": "Priorizar madera para guerra.",
+        "effects": {
+          "reputacion": -2,
+          "dano": 1
+        },
+        "response": "Favoreces la tala para armamento fortaleciendo tu ataque."
+      },
+      {
+        "id": "20o3",
+        "text": "Buscar un terreno alternativo.",
+        "effects": {
+          "carisma": 1,
+          "agilidad": 1
+        },
+        "response": "Usas la astucia para encontrar una solucion que satisfaga a ambos."
+      }
+    ]
+  },
+  {
+    "id": "21",
+    "title": "Paso del contrabandista",
+    "description": "Un guia ilegal conoce un atajo hacia el castillo.",
+    "type": "vida",
+    "minLevel": 1,
+    "maxLevel": 100,
+    "minReputation": 0,
+    "options": [
+      {
+        "id": "21o1",
+        "text": "Usar el atajo de noche.",
+        "effects": {
+          "agilidad": 1,
+          "reputacion": -1
+        },
+        "response": "Cruzas pasadizos ocultos en la penumbra desconfiando del entorno."
+      },
+      {
+        "id": "21o2",
+        "text": "Tomar el camino oficial.",
+        "effects": {
+          "reputacion": 1,
+          "defensa": 1
+        },
+        "response": "Marchas por el camino real manteniendo el honor intacto."
+      },
+      {
+        "id": "21o3",
+        "text": "Exigir que te muestre el mapa antes.",
+        "effects": {
+          "carisma": 1,
+          "dano": 1
+        },
+        "response": "Presionas al contrabandista para verificar que no sea una trampa."
+      }
+    ]
+  },
+  {
+    "id": "22",
+    "title": "Archivo prohibido",
+    "description": "La biblioteca real tiene un tomo sellado con cera negra.",
+    "type": "vida",
+    "minLevel": 1,
+    "maxLevel": 100,
+    "minReputation": 0,
+    "options": [
+      {
+        "id": "22o1",
+        "text": "Leerlo en secreto.",
+        "effects": {
+          "carisma": -1,
+          "dano": 1
+        },
+        "response": "Consumes conocimientos oscuros que vuelven tu hablar mas sombrio."
+      },
+      {
+        "id": "22o2",
+        "text": "Entregarlo al escriba mayor.",
+        "effects": {
+          "carisma": 1,
+          "reputacion": 2
+        },
+        "response": "Efectuas la entrega del tomo prohibido ganandote el respeto del consejo."
+      },
+      {
+        "id": "22o3",
+        "text": "Destruirlo para evitar tentaciones.",
+        "effects": {
+          "reputacion": 1,
+          "defensa": 1
+        },
+        "response": "Quemas las paginas prohibidas eliminando el peligro del reino."
+      }
+    ]
+  },
+  {
+    "id": "23",
+    "title": "Escolta diplomatica",
+    "description": "Debes proteger a una embajadora hacia territorio hostil.",
+    "type": "vida",
+    "minLevel": 1,
+    "maxLevel": 100,
+    "minReputation": 0,
+    "options": [
+      {
+        "id": "23o1",
+        "text": "Marchar rapido y discreto.",
+        "effects": {
+          "agilidad": 1,
+          "defensa": 1
+        },
+        "response": "Avanzas por senderos secundarios evitando emboscadas."
+      },
+      {
+        "id": "23o2",
+        "text": "Marchar lento y visible.",
+        "effects": {
+          "carisma": 1,
+          "reputacion": 1
+        },
+        "response": "Luces la escolta con altivez inspirando respeto a la comitiva."
+      },
+      {
+        "id": "23o3",
+        "text": "Formar una guardia de choque alrededor de la carroza.",
+        "effects": {
+          "fuerza": 1,
+          "defensa": 1
+        },
+        "response": "Resistes con el escudo en alto ante cualquier amenaza del camino."
+      }
+    ]
+  },
+  {
+    "id": "24",
+    "title": "Vigilia de medianoche",
+    "description": "Las campanas suenan sin causa en la noche cerrada.",
+    "type": "vida",
+    "minLevel": 1,
+    "maxLevel": 100,
+    "minReputation": 0,
+    "options": [
+      {
+        "id": "24o1",
+        "text": "Subir al campanario.",
+        "effects": {
+          "agilidad": 1,
+          "vida": -3
+        },
+        "response": "Trepas las escaleras en penumbra sufriendo un tropiezo inesperado."
+      },
+      {
+        "id": "24o2",
+        "text": "Montar guardia en el patio.",
+        "effects": {
+          "reputacion": 1,
+          "defensa": 1
+        },
+        "response": "Mantienes una postura vigilante en la plaza infundiendo tranquilidad."
+      },
+      {
+        "id": "24o3",
+        "text": "Gritar a los vecinos que cierren sus puertas.",
+        "effects": {
+          "carisma": 1,
+          "dano": 1
+        },
+        "response": "Alertas a la poblacion demostrando autoridad en momentos de caos."
+      }
+    ]
+  },
+  {
+    "id": "25",
+    "title": "Tormenta de arena",
+    "description": "Una ventisca cubre la ruta y desorienta caravanas.",
+    "type": "vida",
+    "minLevel": 1,
+    "maxLevel": 100,
+    "minReputation": 0,
+    "options": [
+      {
+        "id": "25o1",
+        "text": "Guiar con cuerdas entre dunas.",
+        "effects": {
+          "carisma": 1,
+          "reputacion": 2,
+          "vida": -4
+        },
+        "response": "Tiras de la cuerda entre la arena sufriendo desgastes fisicos."
+      },
+      {
+        "id": "25o2",
+        "text": "Acampar y esperar.",
+        "effects": {
+          "reputacion": -1,
+          "vida": 3
+        },
+        "response": "Mantas la calma bajo la carpa recuperando fuerzas."
+      },
+      {
+        "id": "25o3",
+        "text": "Usar puntos de referencia rocosos.",
+        "effects": {
+          "agilidad": 1,
+          "defensa": 1
+        },
+        "response": "Utilizas la orientacion geografica para avanzar a salvo entre el viento."
+      }
+    ]
+  },
+  {
+    "id": "26",
+    "title": "Tributo injusto",
+    "description": "El recaudador exige impuestos dobles a campesinos pobres.",
+    "type": "vida",
+    "minLevel": 1,
+    "maxLevel": 100,
+    "minReputation": 0,
+    "options": [
+      {
+        "id": "26o1",
+        "text": "Enfrentar al recaudador.",
+        "effects": {
+          "fuerza": 1,
+          "reputacion": 2
+        },
+        "response": "Te interpones con firmeza obligando a los guardias a retroceder."
+      },
+      {
+        "id": "26o2",
+        "text": "Negociar una rebaja.",
+        "effects": {
+          "carisma": 2,
+          "reputacion": 1
+        },
+        "response": "Usas la elocuencia para convencerlo de cobrar una tarifa justa."
+      },
+      {
+        "id": "26o3",
+        "text": "No intervenir.",
+        "effects": {
+          "reputacion": -2
+        },
+        "response": "Decides mirar a otro lado perdiendo la simpatia de los campesinos."
+      }
+    ]
+  },
+  {
+    "id": "27",
+    "title": "Frontera helada",
+    "description": "Una patrulla queda aislada por nieve profunda.",
+    "type": "vida",
+    "minLevel": 1,
+    "maxLevel": 100,
+    "minReputation": 0,
+    "options": [
+      {
+        "id": "27o1",
+        "text": "Abrir camino con fuerza.",
+        "effects": {
+          "fuerza": 1,
+          "vida": -5
+        },
+        "response": "Rompes la capa de hielo a puro esfuerzo fisico terminando exhausto."
+      },
+      {
+        "id": "27o2",
+        "text": "Enviar senales de humo.",
+        "effects": {
+          "carisma": 1,
+          "reputacion": 1
+        },
+        "response": "Enciendes una fogata visible que orienta a la patrulla a salvo."
+      },
+      {
+        "id": "27o3",
+        "text": "Rastrear con raquetas improvisadas.",
+        "effects": {
+          "agilidad": 1,
+          "defensa": 1
+        },
+        "response": "Te desplazas velozmente sobre la nieve usando astucia de cazador."
+      }
+    ]
+  },
+  {
+    "id": "28",
+    "title": "Bandera enemiga",
+    "description": "Aparece una bandera rival en tu territorio.",
+    "type": "vida",
+    "minLevel": 1,
+    "maxLevel": 100,
+    "minReputation": 0,
+    "options": [
+      {
+        "id": "28o1",
+        "text": "Quemarla en publico.",
+        "effects": {
+          "reputacion": 1,
+          "dano": 1
+        },
+        "response": "Prendes fuego el estandarte enemigo e inflamas la moral de las tropas."
+      },
+      {
+        "id": "28o2",
+        "text": "Guardar pruebas y reportar.",
+        "effects": {
+          "carisma": 1,
+          "defensa": 1
+        },
+        "response": "Muestras prudencia entregando la prueba a los oficiales."
+      },
+      {
+        "id": "28o3",
+        "text": "Sustituirla por tu propio estandarte.",
+        "effects": {
+          "fuerza": 1,
+          "reputacion": 1
+        },
+        "response": "Reclamas el territorio con audacia desafiando abiertamente al rival."
+      }
+    ]
+  },
+  {
+    "id": "29",
+    "title": "Botin repartido",
+    "description": "Tu escuadra discute por el reparto de botin.",
+    "type": "vida",
+    "minLevel": 1,
+    "maxLevel": 100,
+    "minReputation": 0,
+    "options": [
+      {
+        "id": "29o1",
+        "text": "Tomar la mayor parte por rango.",
+        "effects": {
+          "reputacion": -2,
+          "dano": 1
+        },
+        "response": "Exiges la tajada mas grande generando rencor en tus hombres."
+      },
+      {
+        "id": "29o2",
+        "text": "Repartir equitativamente.",
+        "effects": {
+          "carisma": 2,
+          "reputacion": 2
+        },
+        "response": "Divides el tesoro por igual consolidando la lealtad de tu tropa."
+      },
+      {
+        "id": "29o3",
+        "text": "Donar el botin a los caidos.",
+        "effects": {
+          "carisma": 1,
+          "reputacion": 3
+        },
+        "response": "Entregas el oro a las familias de las bajas, marcando un liderazgo noble."
+      }
+    ]
+  },
+  {
+    "id": "30",
+    "title": "Acero encantado",
+    "description": "Un armero itinerante ofrece mejorar tu hoja por un favor.",
+    "type": "vida",
+    "minLevel": 1,
+    "maxLevel": 100,
+    "minReputation": 0,
+    "options": [
+      {
+        "id": "30o1",
+        "text": "Aceptar y hacer el favor.",
+        "effects": {
+          "reputacion": -1,
+          "dano": 2
+        },
+        "response": "Realizas un encargo cuestionable a cambio de un filo temible."
+      },
+      {
+        "id": "30o2",
+        "text": "Rechazar tratos dudosos.",
+        "effects": {
+          "reputacion": 1,
+          "defensa": 1
+        },
+        "response": "Prefieres no involucrarte en negocios turbios reforzando tu temple."
+      },
+      {
+        "id": "30o3",
+        "text": "Ofrecer un objeto valioso en pago.",
+        "effects": {
+          "carisma": 1,
+          "dano": 1
+        },
+        "response": "Negocias un intercambio justo sin deberle favores a nadie."
+      }
+    ]
+  },
+  {
+    "id": "31",
+    "title": "Mina colapsada",
+    "description": "Mineros quedan atrapados tras un derrumbe.",
+    "type": "vida",
+    "minLevel": 1,
+    "maxLevel": 100,
+    "minReputation": 0,
+    "options": [
+      {
+        "id": "31o1",
+        "text": "Entrar a remover rocas.",
+        "effects": {
+          "fuerza": 2,
+          "reputacion": 2,
+          "vida": -7
+        },
+        "response": "Cargas pesadas piedras sufriendo cortes graves para salvar vidas."
+      },
+      {
+        "id": "31o2",
+        "text": "Dirigir rescate desde afuera.",
+        "effects": {
+          "carisma": 1,
+          "defensa": 1
+        },
+        "response": "Organizas los esfuerzos con claridad salvando a la mayoria."
+      },
+      {
+        "id": "31o3",
+        "text": "Usar herramientas de excavacion rapida.",
+        "effects": {
+          "fuerza": 1,
+          "agilidad": 1
+        },
+        "response": "Manejas los picos con destreza abriendo un pasaje de aire."
+      }
+    ]
+  },
+  {
+    "id": "32",
+    "title": "Cosecha saqueada",
+    "description": "Ladrones nocturnos vacian graneros enteros.",
+    "type": "vida",
+    "minLevel": 1,
+    "maxLevel": 100,
+    "minReputation": 0,
+    "options": [
+      {
+        "id": "32o1",
+        "text": "Vigilar en los tejados.",
+        "effects": {
+          "agilidad": 1,
+          "dano": 1
+        },
+        "response": "Aguardas pacientemente en las alturas para sorprender al enemigo."
+      },
+      {
+        "id": "32o2",
+        "text": "Tender trampa en los caminos.",
+        "effects": {
+          "reputacion": 1,
+          "defensa": 1
+        },
+        "response": "Preparas una emboscada defensiva en las rutas de escape."
+      },
+      {
+        "id": "32o3",
+        "text": "Rastrear la carga robada por el peso del barro.",
+        "effects": {
+          "fuerza": 1,
+          "agilidad": 1
+        },
+        "response": "Sigues las huellas profundas del carromato hasta su guarida."
+      }
+    ]
+  },
+  {
+    "id": "33",
+    "title": "Jurista corrupto",
+    "description": "Un juez local acepta sobornos a plena luz.",
+    "type": "vida",
+    "minLevel": 1,
+    "maxLevel": 100,
+    "minReputation": 0,
+    "options": [
+      {
+        "id": "33o1",
+        "text": "Exponerlo ante el consejo.",
+        "effects": {
+          "carisma": 2,
+          "reputacion": 2
+        },
+        "response": "Aportas pruebas irrefutables ante el pueblo ganando gran renombre."
+      },
+      {
+        "id": "33o2",
+        "text": "Amenazarlo en privado.",
+        "effects": {
+          "reputacion": -1,
+          "dano": 1
+        },
+        "response": "Confrontas al magistrado en las sombras imprimiendole miedo."
+      },
+      {
+        "id": "33o3",
+        "text": "Robar sus libros de contabilidad.",
+        "effects": {
+          "agilidad": 2,
+          "reputacion": 1
+        },
+        "response": "Infiltras su despacho para despojarlo de sus registros chantajistas."
+      }
+    ]
+  },
+  {
+    "id": "34",
+    "title": "Ritual en el pantano",
+    "description": "Un culto realiza un ritual cerca del poblado.",
+    "type": "vida",
+    "minLevel": 1,
+    "maxLevel": 100,
+    "minReputation": 0,
+    "options": [
+      {
+        "id": "34o1",
+        "text": "Interrumpir el ritual.",
+        "effects": {
+          "reputacion": 1,
+          "vida": -6,
+          "defensa": 1
+        },
+        "response": "Atacas el altar pagano recibiendo una descarga de energia mística."
+      },
+      {
+        "id": "34o2",
+        "text": "Observar y aprender.",
+        "effects": {
+          "agilidad": 1,
+          "reputacion": -1,
+          "dano": 1
+        },
+        "response": "Estudias los cantos oscuros aprendiendo tecnicas destructivas."
+      },
+      {
+        "id": "34o3",
+        "text": "Dispersar a los devotos con fuego.",
+        "effects": {
+          "carisma": 1,
+          "dano": 1
+        },
+        "response": "Lanzas antorchas a las túnicas obligandolos a huir en desbandada."
+      }
+    ]
+  },
+  {
+    "id": "35",
+    "title": "Rueda del molino",
+    "description": "La rueda principal se atasca y no hay harina.",
+    "type": "vida",
+    "minLevel": 1,
+    "maxLevel": 100,
+    "minReputation": 0,
+    "options": [
+      {
+        "id": "35o1",
+        "text": "Empujarla manualmente.",
+        "effects": {
+          "fuerza": 1,
+          "vida": -3
+        },
+        "response": "Pones la espalda para destrabar el mecanismo sufriendo tirones."
+      },
+      {
+        "id": "35o2",
+        "text": "Coordinar turnos de trabajo.",
+        "effects": {
+          "carisma": 1,
+          "reputacion": 1
+        },
+        "response": "Organizas al pueblo para solucionar el fallo en equipo."
+      },
+      {
+        "id": "35o3",
+        "text": "Inspeccionar el eje con precision.",
+        "effects": {
+          "agilidad": 1,
+          "defensa": 1
+        },
+        "response": "Detectas la cuña atascada y la retiras de un golpe certero."
+      }
+    ]
+  },
+  {
+    "id": "36",
+    "title": "Asedio menor",
+    "description": "Un fuerte aliado sufre hostigamiento constante.",
+    "type": "vida",
+    "minLevel": 1,
+    "maxLevel": 100,
+    "minReputation": 0,
+    "options": [
+      {
+        "id": "36o1",
+        "text": "Romper el asedio con ataque frontal.",
+        "effects": {
+          "vida": -8,
+          "dano": 2
+        },
+        "response": "Cargas contra las lineas enemigas infligiendo devastacion a gran costo."
+      },
+      {
+        "id": "36o2",
+        "text": "Cortar suministros del enemigo.",
+        "effects": {
+          "agilidad": 1,
+          "defensa": 1
+        },
+        "response": "Infiltras tus unidades interceptando los carros de comida rivales."
+      },
+      {
+        "id": "36o3",
+        "text": "Reforzar las empalizadas desde adentro.",
+        "effects": {
+          "reputacion": 1,
+          "defensa": 2
+        },
+        "response": "Trabajas codo a codo en los muros consolidando la defensa."
+      }
+    ]
+  },
+  {
+    "id": "37",
+    "title": "Bestia en corrales",
+    "description": "Algo mata ganado durante la madrugada.",
+    "type": "vida",
+    "minLevel": 1,
+    "maxLevel": 100,
+    "minReputation": 0,
+    "options": [
+      {
+        "id": "37o1",
+        "text": "Hacer guardia con lanza.",
+        "effects": {
+          "dano": 1,
+          "defensa": 1
+        },
+        "response": "Resistes la arremetida de la bestia parando sus garras con tu arma."
+      },
+      {
+        "id": "37o2",
+        "text": "Seguir rastros hasta su guarida.",
+        "effects": {
+          "agilidad": 2,
+          "vida": -4
+        },
+        "response": "Persigues el rastro de sangre por la noche recibiendo emboscadas."
+      },
+      {
+        "id": "37o3",
+        "text": "Espantarla con antorchas y tambores.",
+        "effects": {
+          "carisma": 1,
+          "reputacion": 1
+        },
+        "response": "Generas un gran estruendo defensivo ahuyentando a la alimaña."
+      }
+    ]
+  },
+  {
+    "id": "38",
+    "title": "Festival real",
+    "description": "El rey organiza juegos para medir nuevos talentos.",
+    "type": "vida",
+    "minLevel": 1,
+    "maxLevel": 100,
+    "minReputation": 0,
+    "options": [
+      {
+        "id": "38o1",
+        "text": "Competir en justa.",
+        "effects": {
+          "fuerza": 1,
+          "reputacion": 1,
+          "defensa": 1
+        },
+        "response": "Demuestras tu pericia en el torneo derribando a varios oponentes."
+      },
+      {
+        "id": "38o2",
+        "text": "Ganar aliados en el banquete.",
+        "effects": {
+          "carisma": 2,
+          "reputacion": 2
+        },
+        "response": "Socializas con los cortesanos ganando importantes influencias."
+      },
+      {
+        "id": "38o3",
+        "text": "Demostrar tiro con arco.",
+        "effects": {
+          "agilidad": 2,
+          "reputacion": 1
+        },
+        "response": "Aciertas en el blanco del circuito de agilidad impresionando a los jueces."
+      }
+    ]
+  },
+  {
+    "id": "39",
+    "title": "Mensajes falsos",
+    "description": "Circulan cartas falsas con tu sello personal.",
+    "type": "vida",
+    "minLevel": 1,
+    "maxLevel": 100,
+    "minReputation": 0,
+    "options": [
+      {
+        "id": "39o1",
+        "text": "Seguir al falsificador.",
+        "effects": {
+          "agilidad": 1,
+          "reputacion": 1
+        },
+        "response": "Rastreas los movimientos del traidor hasta acorralarlo en un callejon."
+      },
+      {
+        "id": "39o2",
+        "text": "Publicar un desmentido oficial.",
+        "effects": {
+          "carisma": 2,
+          "reputacion": 1
+        },
+        "response": "Emites un comunicado firme que aclara los rumores ante el pueblo."
+      },
+      {
+        "id": "39o3",
+        "text": "Cambiar el diseño de tu sello.",
+        "effects": {
+          "carisma": 1,
+          "defensa": 1
+        },
+        "response": "Rediseñas tu marca con marcas complejas volviendola inmitable."
+      }
+    ]
+  },
+  {
+    "id": "40",
+    "title": "Contrato sombrio",
+    "description": "Un noble te paga por eliminar a un rival politico.",
+    "type": "vida",
+    "minLevel": 1,
+    "maxLevel": 100,
+    "minReputation": 0,
+    "options": [
+      {
+        "id": "40o1",
+        "text": "Aceptar el contrato.",
+        "effects": {
+          "reputacion": -3,
+          "dano": 2
+        },
+        "response": "Ejecutas el encargo sin piedad volviendote un asesino temido."
+      },
+      {
+        "id": "40o2",
+        "text": "Rechazar y denunciarlo.",
+        "effects": {
+          "carisma": 1,
+          "reputacion": 3
+        },
+        "response": "Revelas la conspiracion ante las autoridades ganando el respeto general."
+      },
+      {
+        "id": "40o3",
+        "text": "Avisar a la victima para sacarle tajada.",
+        "effects": {
+          "carisma": 1,
+          "reputacion": -1
+        },
+        "response": "Juegas a dos puntas informando al rival a cambio de una buena recompensa."
+      }
+    ]
+  },
+  {
+    "id": "41",
+    "title": "Murmullo de traicion",
+    "description": "Un capitan aliado podria estar vendiendo rutas.",
+    "type": "vida",
+    "minLevel": 1,
+    "maxLevel": 100,
+    "minReputation": 0,
+    "options": [
+      {
+        "id": "41o1",
+        "text": "Confrontarlo en publico.",
+        "effects": {
+          "reputacion": 1,
+          "dano": 1
+        },
+        "response": "Encabras al oficial frente a sus hombres forzando una declaracion."
+      },
+      {
+        "id": "41o2",
+        "text": "Seguirlo en secreto.",
+        "effects": {
+          "agilidad": 1,
+          "defensa": 1
+        },
+        "response": "Espias sus reuniones en la penumbra descubriendo sus movimientos."
+      },
+      {
+        "id": "41o3",
+        "text": "Cambiar las rutas sin avisarle.",
+        "effects": {
+          "carisma": 1,
+          "defensa": 1
+        },
+        "response": "Frustras los planes enemigos modificando la estrategia a sus espaldas."
+      }
+    ]
+  },
+  {
+    "id": "42",
+    "title": "Hoguera del norte",
+    "description": "Senales de auxilio arden en las colinas lejanas.",
+    "type": "vida",
+    "minLevel": 1,
+    "maxLevel": 100,
+    "minReputation": 0,
+    "options": [
+      {
+        "id": "42o1",
+        "text": "Responder de inmediato.",
+        "effects": {
+          "reputacion": 2,
+          "vida": -6
+        },
+        "response": "Corres hacia la emergencia sufriendo desgaste pero salvando al puesto."
+      },
+      {
+        "id": "42o2",
+        "text": "Reunir refuerzos primero.",
+        "effects": {
+          "carisma": 1,
+          "defensa": 1
+        },
+        "response": "Logras convocar una fuerza de socorro bien pertrechada."
+      },
+      {
+        "id": "42o3",
+        "text": "Evaluar la situacion desde la distancia con un catalejo.",
+        "effects": {
+          "agilidad": 1,
+          "defensa": 1
+        },
+        "response": "Estudias el humo descifrando el peligro antes de avanzar a ciegas."
+      }
+    ]
+  },
+  {
+    "id": "43",
+    "title": "Puerta sellada",
+    "description": "Una cripta antigua se abre bajo la ciudad.",
+    "type": "vida",
+    "minLevel": 1,
+    "maxLevel": 100,
+    "minReputation": 0,
+    "options": [
+      {
+        "id": "43o1",
+        "text": "Descender sin esperar.",
+        "effects": {
+          "vida": -5,
+          "dano": 1
+        },
+        "response": "Entras en la catacumba recibiendo trampas pero fortaleciendo tu ataque."
+      },
+      {
+        "id": "43o2",
+        "text": "Bendecir armas y escudos.",
+        "effects": {
+          "reputacion": 1,
+          "defensa": 2
+        },
+        "response": "Realizas un ritual de proteccion antes de internarte en lo oscuro."
+      },
+      {
+        "id": "43o3",
+        "text": "Sellar la entrada con una losa.",
+        "effects": {
+          "fuerza": 1,
+          "defensa": 1
+        },
+        "response": "Utilizas tu fuerza para tapar la brecha y contener el mal interior."
+      }
+    ]
+  },
+  {
+    "id": "44",
+    "title": "Cisma del consejo",
+    "description": "Dos facciones nobles quieren tu apoyo.",
+    "type": "vida",
+    "minLevel": 1,
+    "maxLevel": 100,
+    "minReputation": 0,
+    "options": [
+      {
+        "id": "44o1",
+        "text": "Elegir una faccion fuerte.",
+        "effects": {
+          "reputacion": 1,
+          "dano": 1
+        },
+        "response": "Unes tus fuerzas al bando mas poderoso incrementando tu poderio."
+      },
+      {
+        "id": "44o2",
+        "text": "Mediar para una tregua.",
+        "effects": {
+          "carisma": 2,
+          "reputacion": 2
+        },
+        "response": "Logras sentar a ambos nobles a negociar un acuerdo diplomatico."
+      },
+      {
+        "id": "44o3",
+        "text": "Mantener neutralidad armada.",
+        "effects": {
+          "defensa": 1
+        },
+        "response": "Muestras una postura defensiva firme sin inclinar la balanza."
+      }
+    ]
+  },
+  {
+    "id": "45",
+    "title": "Velo de niebla",
+    "description": "Una niebla espesa oculta sombras y ruidos extraños.",
+    "type": "vida",
+    "minLevel": 1,
+    "maxLevel": 100,
+    "minReputation": 0,
+    "options": [
+      {
+        "id": "45o1",
+        "text": "Avanzar con antorchas.",
+        "effects": {
+          "vida": -4,
+          "defensa": 1
+        },
+        "response": "Iluminas el paso disipando las sombras a costa de quemaduras."
+      },
+      {
+        "id": "45o2",
+        "text": "Moverse sin luz para sorprender.",
+        "effects": {
+          "agilidad": 2,
+          "vida": -3
+        },
+        "response": "Te infiltras en la bruma sorprendiendo a lo que acechaba."
+      },
+      {
+        "id": "45o3",
+        "text": "Formar un circulo defensivo codo a codo.",
+        "effects": {
+          "defensa": 2
+        },
+        "response": "Adoptas postura de guardia firme repeliendo los ataques a ciegas."
+      }
+    ]
+  },
+  {
+    "id": "46",
+    "title": "Lanza quebrada",
+    "description": "Tu escuadra pierde armas en plena ruta de guerra.",
+    "type": "vida",
+    "minLevel": 1,
+    "maxLevel": 100,
+    "minReputation": 0,
+    "options": [
+      {
+        "id": "46o1",
+        "text": "Improvisar armas con madera.",
+        "effects": {
+          "fuerza": 1,
+          "dano": 1
+        },
+        "response": "Tallan estacas y garrotes aumentando la agresividad de tu tropa."
+      },
+      {
+        "id": "46o2",
+        "text": "Replegar y reforzar defensas.",
+        "effects": {
+          "reputacion": -1,
+          "defensa": 2
+        },
+        "response": "Mandar cerrar filas protegiendo las bajas a costa de terreno."
+      },
+      {
+        "id": "46o3",
+        "text": "Saquear pertrechos de patrullas caidas.",
+        "effects": {
+          "agilidad": 1,
+          "dano": 1
+        },
+        "response": "Despojas a los caidos enemigos dotando a tu tropa de nuevo equipo."
+      }
+    ]
+  },
+  {
+    "id": "47",
+    "title": "Campamento desertor",
+    "description": "Soldados desertores piden unirse a tu causa.",
+    "type": "vida",
+    "minLevel": 1,
+    "maxLevel": 100,
+    "minReputation": 0,
+    "options": [
+      {
+        "id": "47o1",
+        "text": "Aceptarlos bajo vigilancia.",
+        "effects": {
+          "carisma": 1,
+          "reputacion": 1
+        },
+        "response": "Aceptas su apoyo integrandolos con cautela al regimiento."
+      },
+      {
+        "id": "47o2",
+        "text": "Rechazarlos por traicion.",
+        "effects": {
+          "reputacion": -1,
+          "defensa": 1
+        },
+        "response": "Los echas con severidad demostrando la disciplina del campamento."
+      },
+      {
+        "id": "47o3",
+        "text": "Ponerlos a prueba en una mision suicida.",
+        "effects": {
+          "fuerza": 1,
+          "dano": 1
+        },
+        "response": "Mides su lealtad antes de darles la bienvenida definitiva."
+      }
+    ]
+  },
+  {
+    "id": "48",
+    "title": "Rito de coronas",
+    "description": "Un templo ofrece bendicion antes de la batalla final.",
+    "type": "vida",
+    "minLevel": 1,
+    "maxLevel": 100,
+    "minReputation": 0,
+    "options": [
+      {
+        "id": "48o1",
+        "text": "Aceptar bendicion completa.",
+        "effects": {
+          "reputacion": 2,
+          "vida": 8
+        },
+        "response": "Recibes la gracia sagrada sanando tus heridas profundamente."
+      },
+      {
+        "id": "48o2",
+        "text": "Rechazar y confiar en tu acero.",
+        "effects": {
+          "dano": 2
+        },
+        "response": "Muestras una determinacion brutal confiando solo en tu destreza."
+      },
+      {
+        "id": "48o3",
+        "text": "Pedir la bendicion para tus tropas.",
+        "effects": {
+          "carisma": 2,
+          "reputacion": 1
+        },
+        "response": "Refuerzas el espiritu de tus compañeros en lugar de velar por ti."
+      }
+    ]
+  },
+  {
+    "id": "49",
+    "title": "Alarma en la capital",
+    "description": "La capital sufre ataques simultaneos en varios barrios.",
+    "type": "vida",
+    "minLevel": 1,
+    "maxLevel": 100,
+    "minReputation": 0,
+    "options": [
+      {
+        "id": "49o1",
+        "text": "Defender barrio civil.",
+        "effects": {
+          "reputacion": 3,
+          "vida": -7
+        },
+        "response": "Interpones tu cuerpo para salvar familias sufriendo graves heridas."
+      },
+      {
+        "id": "49o2",
+        "text": "Golpear el centro enemigo.",
+        "effects": {
+          "fuerza": 1,
+          "dano": 2
+        },
+        "response": "Cargas directo al comando enemigo decapitando la ofensiva."
+      },
+      {
+        "id": "49o3",
+        "text": "Asegurar las armerias de la ciudad.",
+        "effects": {
+          "agilidad": 1,
+          "defensa": 2
+        },
+        "response": "Tomas el control de los depositos de armas manteniendo la logistica."
+      }
+    ]
+  },
+  {
+    "id": "50",
+    "title": "Umbral de leyenda",
+    "description": "Tu nombre ya suena en el reino. Falta el ultimo paso.",
+    "type": "vida",
+    "minLevel": 1,
+    "maxLevel": 100,
+    "minReputation": 0,
+    "options": [
+      {
+        "id": "50o1",
+        "text": "Buscar gloria en combate directo.",
+        "effects": {
+          "reputacion": 2,
+          "vida": -6,
+          "dano": 2
+        },
+        "response": "Te lanzas al frente demostrando un poder devastador a un alto costo."
+      },
+      {
+        "id": "50o2",
+        "text": "Proteger al pueblo por encima del honor.",
+        "effects": {
+          "carisma": 2,
+          "reputacion": 3,
+          "defensa": 2
+        },
+        "response": "Eriges un bastion inexpugnable ganandote la devocion eterna."
+      },
+      {
+        "id": "50o3",
+        "text": "Tomar una ruta estrategica y fria.",
+        "effects": {
+          "fuerza": 1,
+          "agilidad": 2,
+          "reputacion": 1
+        },
+        "response": "Ejecutas una maniobra tactica perfecta consolidando la victoria."
+      }
+    ]
+  }
+]

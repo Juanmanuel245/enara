@@ -1,0 +1,67 @@
+[
+  {
+    "id": "4",
+    "name": "El Ayudante de Taberna",
+    "description": "Servir jarras te enseñó a tratar con todo tipo de viajeros, escuchar rumores locales y calmar discusiones violentas antes de que empiecen. Todo el pueblo te conoce.",
+    "fuerza": -1,
+    "agilidad": 2,
+    "carisma": 7,
+    "suerte": 2,
+    "oro": 60,
+    "experiencia": 80,
+    "reputacion": 25,
+    "image": "/destino_inicial/ayudante_taberna.jpeg"
+  },
+  {
+    "id": "3",
+    "name": "El Campesino Afortunado",
+    "description": "Trabajabas la tierra como cualquiera, hasta que desenterraste un viejo bote de monedas mientras arabas. No tenés habilidades de combate, pero el destino parece sonreírte.",
+    "fuerza": 1,
+    "agilidad": 0,
+    "carisma": 2,
+    "suerte": 9,
+    "oro": 250,
+    "experiencia": 0,
+    "reputacion": 0,
+    "image": "/destino_inicial/campesino_afortunado.jpeg"
+  },
+  {
+    "id": "5",
+    "name": "El Cazador Furtivo",
+    "description": "Aprendiste a rastrear conejos en el bosque y poner trampas para llevar comida a tu familia. Sabés moverte en el monte, aunque a veces la ley te sigue los pasos.",
+    "fuerza": 2,
+    "agilidad": 5,
+    "carisma": -1,
+    "suerte": 1,
+    "oro": 30,
+    "experiencia": 120,
+    "reputacion": 0,
+    "image": "/destino_inicial/cazador_furtivo.jpeg"
+  },
+  {
+    "id": "1",
+    "name": "El Hijo del Herrero",
+    "description": "Años cargando carbón y martillando metal a temperatura extrema te dieron una contextura robusta y resistencia al dolor, aunque nunca tuviste tiempo para salir de tu pueblo.",
+    "fuerza": 6,
+    "agilidad": -1,
+    "carisma": 1,
+    "suerte": 0,
+    "oro": 40,
+    "experiencia": 20,
+    "reputacion": 5,
+    "image": "/destino_inicial/hijo_herrero.jpeg"
+  },
+  {
+    "id": "2",
+    "name": "La Rata de Callejón",
+    "description": "Creciste esquivando a la guardia del rey y robando fruta de los puestos. Sos escurridizo y rápido con las manos, pero los vecinos bien situados no te tienen confianza.",
+    "fuerza": -1,
+    "agilidad": 7,
+    "carisma": -2,
+    "suerte": 4,
+    "oro": 85,
+    "experiencia": 50,
+    "reputacion": -15,
+    "image": "/destino_inicial/rata_callejon.jpeg"
+  }
+]
