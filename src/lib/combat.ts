@@ -1,6 +1,6 @@
 import type { Enemigo } from "@/lib/enemigos";
-import type { WeaponItem } from "@/lib/items";
-import { applyExperienceGain, applyReputationGain, type PlayerProfile } from "@/lib/player";
+import { findItemById, sumItemEffects, type GameItem } from "@/lib/items";
+import { applyExperienceGain, applyReputationGain, getEquippedItemIds, type HeroStats, type PlayerProfile } from "@/lib/player";
 
 export type CombatAction = "attack" | "defend" | "flee";
 
@@ -25,27 +25,66 @@ const clamp = (value: number, min: number, max: number) => Math.min(max, Math.ma
 
 const rollChance = (percent: number) => Math.random() * 100 < clamp(percent, 0, 100);
 
+export const getEquippedItems = (player: PlayerProfile, items: GameItem[]) =>
+  getEquippedItemIds(player.equipment)
+    .map((itemId) => findItemById(items, itemId))
+    .filter((item): item is GameItem => item !== null);
+
+export const getEffectiveHeroStats = (player: PlayerProfile, items: GameItem[]): HeroStats => {
+  const equipmentEffects = sumItemEffects(getEquippedItems(player, items));
+  const next: HeroStats = { ...player.stats };
+
+  (Object.keys(equipmentEffects) as (keyof HeroStats)[]).forEach((key) => {
+    const value = equipmentEffects[key];
+    if (typeof value !== "number" || !Number.isFinite(value)) {
+      return;
+    }
+    if (key === "dano") {
+      next.fuerza += value;
+      return;
+    }
+    if (key === "vidaMax") {
+      next.vidaMax = clamp(next.vidaMax + value, 1, 999);
+      return;
+    }
+    next[key] = next[key] + value;
+  });
+
+  next.vida = clamp(next.vida, 1, next.vidaMax);
+  next.fuerza = clamp(next.fuerza, 1, 30);
+  next.carisma = clamp(next.carisma, 1, 30);
+  next.agilidad = clamp(next.agilidad, 1, 30);
+  next.suerte = clamp(next.suerte, 1, 30);
+  next.defensa = clamp(next.defensa, 0, 30);
+  next.dano = 0;
+
+  return next;
+};
+
 export const getCombatGearFromEquipment = (
   player: PlayerProfile,
-  weaponItems: Pick<WeaponItem, "name" | "effects">[]
+  items: Pick<GameItem, "id" | "effects">[]
 ): CombatGearBonuses => {
-  const main = weaponItems.find((item) => item.name === player.equipment.mano_principal);
-  const off = weaponItems.find((item) => item.name === player.equipment.mano_secundaria);
+  const equipped = getEquippedItemIds(player.equipment)
+    .map((itemId) => items.find((item) => item.id === itemId) ?? null)
+    .filter((item): item is Pick<GameItem, "id" | "effects"> => item !== null);
+
+  const totals = sumItemEffects(equipped);
 
   return {
-    weaponDano: (main?.effects.dano ?? 0) + (off?.effects.dano ?? 0),
-    weaponDefensa: (main?.effects.defensa ?? 0) + (off?.effects.defensa ?? 0)
+    weaponDano: totals.dano ?? 0,
+    weaponDefensa: totals.defensa ?? 0
   };
 };
 
-/** Ataque del heroe: (fuerza + dano de arma) * nivel. Critico usa probCritico / danoCritico. */
+/** Ataque del heroe: (fuerza + daño de arma) * nivel. Critico usa probCritico / danoCritico. */
 export const calcHeroRawDamage = (player: PlayerProfile, weaponDano: number) => {
   const arma = Math.max(0, weaponDano);
   const base = player.stats.fuerza + arma;
   return Math.max(1, base * Math.max(1, player.nivel));
 };
 
-/** Valor mostrado en la UI como stat "Dano". */
+/** Valor mostrado en la UI como stat "Daño". */
 export const calcHeroAttackPower = (player: PlayerProfile, weaponDano: number) =>
   calcHeroRawDamage(player, weaponDano);
 
@@ -94,8 +133,8 @@ const applyDamageToEnemy = (
   const enemyVida = Math.max(0, combat.enemyVida - damage);
   log.push(
     crit
-      ? `Golpe critico: infligis ${damage} de dano.`
-      : `Atacas e infligis ${damage} de dano.`
+      ? `Golpe critico: infligis ${damage} de daño.`
+      : `Atacas e infligis ${damage} de daño.`
   );
 
   return {
@@ -142,8 +181,8 @@ const applyDamageToHero = (
 
   log.push(
     defending
-      ? `${enemy.nombre} ataca mientras te defendes: recibis ${damage} de dano.`
-      : `${enemy.nombre} ataca y te hace ${damage} de dano.`
+      ? `${enemy.nombre} ataca mientras te defendes: recibis ${damage} de daño.`
+      : `${enemy.nombre} ataca y te hace ${damage} de daño.`
   );
 
   return {

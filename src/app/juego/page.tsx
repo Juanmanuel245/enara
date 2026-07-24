@@ -26,7 +26,15 @@ import { useRouter } from "next/navigation";
 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { fetchWeaponItems, getLocalWeaponItems, normalizeWeaponItem, type WeaponItem } from "@/lib/items";
+import {
+  fetchItems,
+  findItemById,
+  getLocalItems,
+  isConsumableItem,
+  normalizeGameItem,
+  rollDroppedItem,
+  type GameItem
+} from "@/lib/items";
 import {
   fetchMissions,
   filterEligibleMissions,
@@ -40,6 +48,7 @@ import {
   calcHeroAttackPower,
   createCombatState,
   getCombatGearFromEquipment,
+  getEffectiveHeroStats,
   resolveCombatTurn,
   type CombatAction,
   type CombatState
@@ -55,18 +64,31 @@ import {
 } from "@/lib/enemigos";
 import {
   applyReputationGain,
+  addItemToInventory,
+  buyItemToInventory,
+  consumeItemFromInventory,
+  equipItemFromInventory,
+  EQUIPMENT_LAYOUT,
   getHeroExperienceProgress,
   getHeroLevelXpTable,
   getReputationProgress,
   getReputationRankXpTable,
+  migrateLegacyEquipmentIds,
   MAX_ENERGIA,
   GAME_STORAGE_KEY,
   PLAYER_STORAGE_KEY,
+  sellItemFromInventoryAt,
+  unequipItemToInventory,
   type HeroStats,
   type PlayerProfile,
-  formatEquipmentSlotLabel,
   parseStoredPlayer
 } from "@/lib/player";
+import {
+  formatCharismaTradeHint,
+  getShopBuyPrice,
+  getShopSellPrice,
+  pickShopOffers
+} from "@/lib/shop";
 
 const HERO_LEVEL_XP_TABLE = getHeroLevelXpTable();
 const REPUTATION_RANK_XP_TABLE = getReputationRankXpTable();
@@ -118,6 +140,7 @@ type GamePhase =
   | "lifeMission"
   | "missionResult"
   | "dayStage2"
+  | "shop"
   | "dayStage3"
   | "stageMessage"
   | "enemyEncounter"
@@ -134,10 +157,11 @@ type GameState = {
   lastBattle: LastBattle | null;
   lastMissionChoice: LastMissionChoice | null;
   lastStageMessage: StageMessage | null;
-  pendingDrop: WeaponItem | null;
+  pendingDrop: GameItem | null;
   pendingEnemy: Enemigo | null;
   pendingEncounterChoice: DayStage3EncounterChoice | null;
   combat: CombatState | null;
+  shopOffers: string[];
 };
 
 const normalizeCombatState = (raw: unknown, enemy: Enemigo | null): CombatState | null => {
@@ -182,6 +206,17 @@ const normalizeCombatState = (raw: unknown, enemy: Enemigo | null): CombatState 
 };
 
 const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value));
+
+const resolveItemImage = (image?: string) => {
+  if (!image) {
+    return "";
+  }
+  if (image.startsWith("http") || image.startsWith("/")) {
+    return image;
+  }
+  return `/items/armas/${image}`;
+};
+
 const randomBetween = (min: number, max: number) => Math.floor(Math.random() * (max - min + 1)) + min;
 
 const getCombatLogClassName = (line: string): string => {
@@ -224,7 +259,7 @@ const statLabels: Record<keyof HeroStats, string> = {
   reputacion: "Reputacion",
   vida: "Vida",
   vidaMax: "Vida maxima",
-  dano: "Dano",
+  dano: "Daño",
   defensa: "Defensa"
 };
 
@@ -244,6 +279,15 @@ const formatMissionEffects = (effects: Partial<Record<keyof HeroStats, number>>)
     return `${sign}${value} ${label}`;
   });
 };
+
+const getItemEffectLines = (effects: Partial<Record<keyof HeroStats, number>>) =>
+  (Object.keys(effects) as (keyof HeroStats)[])
+    .filter((key) => typeof effects[key] === "number" && (effects[key] ?? 0) !== 0)
+    .map((key) => ({
+      key,
+      value: effects[key] ?? 0,
+      label: statLabels[key]
+    }));
 
 const applyOptionEffects = (
   player: PlayerProfile,
@@ -358,6 +402,7 @@ const parseStoredGame = (rawGame: string | null): GameState | null => {
         phase === "lifeMission" ||
         phase === "missionResult" ||
         phase === "dayStage2" ||
+        phase === "shop" ||
         phase === "dayStage3" ||
         phase === "stageMessage" ||
         phase === "enemyEncounter" ||
@@ -412,6 +457,9 @@ const parseStoredGame = (rawGame: string | null): GameState | null => {
         : null;
 
     const pendingEnemy = normalizeEnemigo(parsed.pendingEnemy);
+    const shopOffers = Array.isArray(parsed.shopOffers)
+      ? parsed.shopOffers.filter((itemId): itemId is string => typeof itemId === "string" && itemId.length > 0)
+      : [];
 
     return {
       turnIndex: parsed.turnIndex,
@@ -423,13 +471,14 @@ const parseStoredGame = (rawGame: string | null): GameState | null => {
       lastBattle: parsed.lastBattle ?? null,
       lastMissionChoice: parsed.lastMissionChoice ?? null,
       lastStageMessage: normalizedStageMessage,
-      pendingDrop: normalizeWeaponItem(parsed.pendingDrop),
+      pendingDrop: normalizeGameItem(parsed.pendingDrop),
       pendingEnemy,
       pendingEncounterChoice: normalizedEncounterChoice,
       combat:
         normalizedPhase === "enemyEncounter"
           ? normalizeCombatState(parsed.combat, pendingEnemy)
-          : null
+          : null,
+      shopOffers: normalizedPhase === "shop" ? shopOffers : []
     } satisfies GameState;
   } catch {
     return null;
@@ -441,7 +490,7 @@ export default function GamePage() {
   const combatLogRef = useRef<HTMLUListElement>(null);
   const currentLevelRowRef = useRef<HTMLTableRowElement>(null);
   const currentReputationRowRef = useRef<HTMLTableRowElement>(null);
-  const [weaponItems, setWeaponItems] = useState<WeaponItem[]>(() => getLocalWeaponItems());
+  const [itemCatalog, setItemCatalog] = useState<GameItem[]>(() => getLocalItems());
   const [missionItems, setMissionItems] = useState<Mission[]>(() => getLocalMissions());
   const [enemigoItems] = useState<Enemigo[]>(() => getLocalEnemigos());
   const [levelXpTableOpen, setLevelXpTableOpen] = useState(false);
@@ -476,7 +525,8 @@ export default function GamePage() {
       pendingDrop: null,
       pendingEnemy: null,
       pendingEncounterChoice: null,
-      combat: null
+      combat: null,
+      shopOffers: []
     } satisfies GameState;
   });
 
@@ -490,12 +540,28 @@ export default function GamePage() {
     let active = true;
 
     const loadItems = async () => {
-      const loaded = await fetchWeaponItems();
+      const loaded = await fetchItems();
       if (!active) {
         return;
       }
 
-      setWeaponItems(loaded);
+      setItemCatalog(loaded);
+
+      setGame((currentGame) => {
+        if (!currentGame) {
+          return currentGame;
+        }
+
+        const migratedPlayer = migrateLegacyEquipmentIds(currentGame.player, loaded);
+        if (migratedPlayer === currentGame.player) {
+          return currentGame;
+        }
+
+        const nextGame = { ...currentGame, player: migratedPlayer };
+        window.localStorage.setItem(GAME_STORAGE_KEY, JSON.stringify(nextGame));
+        window.localStorage.setItem(PLAYER_STORAGE_KEY, JSON.stringify(migratedPlayer));
+        return nextGame;
+      });
     };
 
     void loadItems();
@@ -581,25 +647,27 @@ export default function GamePage() {
     [game, lifeMissions]
   );
 
-  const heroPrimaryStats = game
+  const effectiveHeroStats = game ? getEffectiveHeroStats(game.player, itemCatalog) : null;
+
+  const heroPrimaryStats = effectiveHeroStats
     ? [
-        { label: "Fuerza", value: game.player.stats.fuerza, Icon: Swords },
-        { label: "Agilidad", value: game.player.stats.agilidad, Icon: Footprints },
-        { label: "Carisma", value: game.player.stats.carisma, Icon: Users },
-        { label: "Suerte", value: game.player.stats.suerte, Icon: Clover }
+        { label: "Fuerza", value: effectiveHeroStats.fuerza, Icon: Swords },
+        { label: "Agilidad", value: effectiveHeroStats.agilidad, Icon: Footprints },
+        { label: "Carisma", value: effectiveHeroStats.carisma, Icon: Users },
+        { label: "Suerte", value: effectiveHeroStats.suerte, Icon: Clover }
       ]
     : [];
 
-  const combatGear = game ? getCombatGearFromEquipment(game.player, weaponItems) : null;
+  const combatGear = game ? getCombatGearFromEquipment(game.player, itemCatalog) : null;
 
-  const heroCombatStats = game
+  const heroCombatStats = effectiveHeroStats
     ? [
         {
-          label: "Dano",
-          value: calcHeroAttackPower(game.player, combatGear?.weaponDano ?? 0),
+          label: "Daño",
+          value: calcHeroAttackPower({ ...game!.player, stats: effectiveHeroStats }, combatGear?.weaponDano ?? 0),
           Icon: Sword
         },
-        { label: "Defensa", value: game.player.stats.defensa, Icon: Shield }
+        { label: "Defensa", value: effectiveHeroStats.defensa, Icon: Shield }
       ]
     : [];
 
@@ -611,7 +679,7 @@ export default function GamePage() {
           Icon: Crosshair
         },
         {
-          label: "Dano critico",
+          label: "Daño critico",
           value: `${game.player.secondaryStats.danoCritico}%`,
           Icon: Flame
         },
@@ -640,11 +708,13 @@ export default function GamePage() {
   );
 
   const currentLifeMission = game ? eligibleLifeMissions[game.lifeMissionIndex] ?? null : null;
-  const equippedMainHandItem = weaponItems.find((item) => item.name === game?.player.equipment.mano_principal);
-  const equippedOffHandItem = weaponItems.find((item) => item.name === game?.player.equipment.mano_secundaria);
+  const getEquippedItemForSlot = (slotKey: string) => {
+    const itemId = game?.player.equipment[slotKey];
+    return itemId ? findItemById(itemCatalog, itemId) : null;
+  };
 
-  const vidaPercent = game
-    ? Math.min(100, Math.max(0, (game.player.stats.vida / game.player.stats.vidaMax) * 100))
+  const vidaPercent = effectiveHeroStats
+    ? Math.min(100, Math.max(0, (game!.player.stats.vida / effectiveHeroStats.vidaMax) * 100))
     : 0;
   const energiaPercent = game ? Math.min(100, Math.max(0, (game.player.energia / MAX_ENERGIA) * 100)) : 0;
   const isExhausted = Boolean(game && game.player.energia <= 0);
@@ -655,7 +725,7 @@ export default function GamePage() {
     ? getHeroExperienceProgress(game.player.experiencia, game.player.nivel)
     : null;
   const currentDayStage: 1 | 2 | 3 = game
-    ? game.phase === "dayStage2"
+    ? game.phase === "dayStage2" || game.phase === "shop"
       ? 2
       : game.phase === "dayStage3" || game.phase === "enemyEncounter"
       ? 3
@@ -720,6 +790,7 @@ export default function GamePage() {
       pendingEnemy: null,
       pendingEncounterChoice: null,
       combat: null,
+      shopOffers: [],
       turnIndex: game.turnIndex + 1,
       lifeMissionIndex: game.lifeMissionIndex + 1,
       situationMissionIndex: game.situationMissionIndex + 1
@@ -810,18 +881,16 @@ export default function GamePage() {
 
     if (choice === "shop") {
       const energyResult = spendEnergyPercent(game.player, 5, 15);
+      const offers = pickShopOffers(itemCatalog);
       persistGame({
         ...game,
         player: energyResult.player,
-        phase: "stageMessage",
+        phase: "shop",
         lastBattle: null,
         lastMissionChoice: null,
-        lastStageMessage: {
-          stage: 2,
-          text: "Pasaste a saludar por la tienda",
-          spent: { energia: energyResult.spent }
-        },
-        pendingDrop: null
+        lastStageMessage: null,
+        pendingDrop: null,
+        shopOffers: offers.map((item) => item.id)
       });
       return;
     }
@@ -935,25 +1004,173 @@ export default function GamePage() {
       return;
     }
 
-    const gear = getCombatGearFromEquipment(game.player, weaponItems);
+    const effectivePlayer = {
+      ...game.player,
+      stats: getEffectiveHeroStats(game.player, itemCatalog)
+    };
+    const gear = getCombatGearFromEquipment(game.player, itemCatalog);
 
     const result = resolveCombatTurn({
       action,
-      player: game.player,
+      player: effectivePlayer,
       enemy: game.pendingEnemy,
       combat: game.combat,
       gear
     });
 
-    const rewardedPlayer =
-      result.combat.status === "won"
-        ? applyVictoryRewards(result.player, game.pendingEnemy)
-        : result.player;
+    let nextPlayer: PlayerProfile = {
+      ...game.player,
+      stats: {
+        ...game.player.stats,
+        vida: result.player.stats.vida
+      }
+    };
+
+    let nextCombat = result.combat;
+    let pendingDrop = game.pendingDrop;
+
+    if (result.combat.status === "won") {
+      nextPlayer = applyVictoryRewards(nextPlayer, game.pendingEnemy);
+      const droppedItem = rollDroppedItem(itemCatalog, game.pendingEnemy);
+
+      if (droppedItem) {
+        const inventoryResult = addItemToInventory(nextPlayer, droppedItem.id);
+        nextPlayer = inventoryResult.player;
+        pendingDrop = droppedItem;
+        nextCombat = {
+          ...result.combat,
+          log: [
+            ...result.combat.log,
+            inventoryResult.ok
+              ? `Obtuviste: ${droppedItem.name} (guardado en inventario).`
+              : `Obtuviste: ${droppedItem.name}, pero ${inventoryResult.message}`
+          ].slice(-12)
+        };
+      } else {
+        pendingDrop = null;
+        nextCombat = {
+          ...result.combat,
+          log: [...result.combat.log, "No obtuviste botin esta vez."].slice(-12)
+        };
+      }
+    }
 
     persistGame({
       ...game,
-      player: rewardedPlayer,
-      combat: result.combat
+      player: nextPlayer,
+      pendingDrop,
+      combat: nextCombat
+    });
+  };
+
+  const handleInventoryItemClick = (slotIndex: number) => {
+    if (!game) {
+      return;
+    }
+
+    const itemId = game.player.inventory[slotIndex];
+    if (!itemId) {
+      return;
+    }
+
+    const item = findItemById(itemCatalog, itemId);
+    if (!item) {
+      return;
+    }
+
+    const result = isConsumableItem(item)
+      ? consumeItemFromInventory(game.player, slotIndex, item)
+      : equipItemFromInventory(game.player, slotIndex, item);
+
+    if (!result.ok) {
+      window.alert(result.message);
+      return;
+    }
+
+    persistGame({
+      ...game,
+      player: result.player
+    });
+  };
+
+  const handleEquipmentSlotClick = (slotKey: string) => {
+    if (!game) {
+      return;
+    }
+
+    const result = unequipItemToInventory(game.player, slotKey);
+    if (!result.ok) {
+      window.alert(result.message);
+      return;
+    }
+
+    persistGame({
+      ...game,
+      player: result.player
+    });
+  };
+
+  const handleLeaveShop = () => {
+    if (!game || game.phase !== "shop") {
+      return;
+    }
+
+    persistGame({
+      ...game,
+      phase: "dayStage3",
+      shopOffers: []
+    });
+  };
+
+  const handleShopBuy = (itemId: string) => {
+    if (!game || game.phase !== "shop") {
+      return;
+    }
+
+    const item = findItemById(itemCatalog, itemId);
+    if (!item) {
+      return;
+    }
+
+    const buyPrice = getShopBuyPrice(item.cost, game.player.stats.carisma);
+    const result = buyItemToInventory(game.player, item.id, buyPrice);
+    if (!result.ok) {
+      window.alert(result.message);
+      return;
+    }
+
+    persistGame({
+      ...game,
+      player: result.player,
+      shopOffers: game.shopOffers.filter((offerId) => offerId !== item.id)
+    });
+  };
+
+  const handleShopSell = (slotIndex: number) => {
+    if (!game || game.phase !== "shop") {
+      return;
+    }
+
+    const itemId = game.player.inventory[slotIndex];
+    if (!itemId) {
+      return;
+    }
+
+    const item = findItemById(itemCatalog, itemId);
+    if (!item) {
+      return;
+    }
+
+    const sellPrice = getShopSellPrice(item.cost, game.player.stats.carisma);
+    const result = sellItemFromInventoryAt(game.player, slotIndex, sellPrice);
+    if (!result.ok) {
+      window.alert(result.message);
+      return;
+    }
+
+    persistGame({
+      ...game,
+      player: result.player
     });
   };
 
@@ -991,44 +1208,6 @@ export default function GamePage() {
     advanceTurn(game.player, null);
   };
 
-  const handleEquipDroppedWeapon = () => {
-    if (!game?.pendingDrop) {
-      return;
-    }
-
-    const dropped = game.pendingDrop;
-    const updatedPlayer: PlayerProfile = {
-      ...game.player,
-      equipment:
-        dropped.slot === "mano_principal"
-          ? { ...game.player.equipment, mano_principal: dropped.name }
-          : { ...game.player.equipment, mano_secundaria: dropped.name }
-    };
-
-    persistGame({
-      ...game,
-      player: updatedPlayer,
-      pendingDrop: null
-    });
-  };
-
-  const handleSellDroppedWeapon = () => {
-    if (!game?.pendingDrop) {
-      return;
-    }
-
-    const updatedPlayer: PlayerProfile = {
-      ...game.player,
-      coins: game.player.coins + game.pendingDrop.cost
-    };
-
-    persistGame({
-      ...game,
-      player: updatedPlayer,
-      pendingDrop: null
-    });
-  };
-
   const handleContinue = () => {
     if (!game) {
       return;
@@ -1055,7 +1234,8 @@ export default function GamePage() {
       pendingDrop: null,
       pendingEnemy: null,
       pendingEncounterChoice: null,
-      combat: null
+      combat: null,
+      shopOffers: []
     });
   };
 
@@ -1155,7 +1335,7 @@ export default function GamePage() {
                       Vida
                     </span>
                     <span className="tabular-nums text-stone-300">
-                      {game.player.stats.vida}/{game.player.stats.vidaMax}
+                      {game.player.stats.vida}/{effectiveHeroStats?.vidaMax ?? game.player.stats.vidaMax}
                     </span>
                   </div>
                   <div className="h-2.5 overflow-hidden rounded-full border border-amber-900/40 bg-stone-950">
@@ -1438,6 +1618,152 @@ export default function GamePage() {
                 </div>
               )}
 
+              {game.phase === "shop" && (
+                <div className="space-y-4">
+                  <div className="rounded-lg border border-amber-700/25 bg-stone-900/60 p-4">
+                    <p className="mb-1 text-xs uppercase tracking-[0.2em] text-amber-300/80">
+                      Dia {game.turnIndex} - Etapa 2
+                    </p>
+                    <h3 className="font-[var(--font-cinzel)] text-2xl text-amber-100">Tienda del pueblo</h3>
+                    <p className="mt-2 text-stone-300">
+                      Compra ofertas del dia o vende copias de items de tu inventario.
+                    </p>
+                    <p className="mt-2 text-sm text-amber-200/90">
+                      Carisma {game.player.stats.carisma}: {formatCharismaTradeHint(game.player.stats.carisma)}
+                    </p>
+                    <p className="mt-1 text-sm text-stone-400">
+                      Monedas disponibles: {game.player.coins}
+                    </p>
+                  </div>
+
+                  <div className="rounded-lg border border-amber-700/25 bg-stone-900/60 p-4">
+                    <p className="mb-3 text-xs uppercase tracking-[0.2em] text-amber-300/80">Comprar</p>
+                    {game.shopOffers.length === 0 ? (
+                      <p className="text-sm text-stone-400">Hoy no hay ofertas disponibles.</p>
+                    ) : (
+                      <div className="grid gap-3">
+                        {game.shopOffers.map((offerId) => {
+                          const offerItem = findItemById(itemCatalog, offerId);
+                          if (!offerItem) {
+                            return null;
+                          }
+
+                          const buyPrice = getShopBuyPrice(offerItem.cost, game.player.stats.carisma);
+                          const canAfford = game.player.coins >= buyPrice;
+
+                          return (
+                            <div
+                              key={`shop-offer-${offerId}`}
+                              className="flex flex-col gap-3 rounded-md border border-amber-700/25 bg-stone-950/70 p-3 sm:flex-row sm:items-center sm:justify-between"
+                            >
+                              <div className="flex items-center gap-3">
+                                {offerItem.image ? (
+                                  <>
+                                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                                    <img
+                                      src={resolveItemImage(offerItem.image)}
+                                      alt={offerItem.name}
+                                      className="h-12 w-12 object-contain"
+                                    />
+                                  </>
+                                ) : null}
+                                <div>
+                                  <p className="font-medium text-amber-100">{offerItem.name}</p>
+                                  <p className="text-xs text-stone-400">
+                                    {offerItem.rarity} · Nivel {offerItem.nivel} · Base {offerItem.cost} monedas
+                                  </p>
+                                  {getItemEffectLines(offerItem.effects).length > 0 && (
+                                    <ul className="mt-1 text-xs">
+                                      {getItemEffectLines(offerItem.effects).map((effect) => (
+                                        <li
+                                          key={`shop-offer-${offerId}-${effect.key}`}
+                                          className={effect.value > 0 ? "text-emerald-300" : "text-red-300"}
+                                        >
+                                          {effect.value > 0 ? "+" : ""}
+                                          {effect.value} {effect.label}
+                                        </li>
+                                      ))}
+                                    </ul>
+                                  )}
+                                </div>
+                              </div>
+                              <Button
+                                type="button"
+                                disabled={!canAfford}
+                                onClick={() => handleShopBuy(offerId)}
+                                className="shrink-0"
+                              >
+                                Comprar por {buyPrice} monedas
+                              </Button>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="rounded-lg border border-amber-700/25 bg-stone-900/60 p-4">
+                    <p className="mb-3 text-xs uppercase tracking-[0.2em] text-amber-300/80">Vender</p>
+                    {game.player.inventory.every((itemId) => !itemId) ? (
+                      <p className="text-sm text-stone-400">No tenes items para vender.</p>
+                    ) : (
+                      <div className="grid gap-3">
+                        {game.player.inventory.map((itemId, slotIndex) => {
+                          if (!itemId) {
+                            return null;
+                          }
+
+                          const storedItem = findItemById(itemCatalog, itemId);
+                          if (!storedItem) {
+                            return null;
+                          }
+
+                          const sellPrice = getShopSellPrice(storedItem.cost, game.player.stats.carisma);
+
+                          return (
+                            <div
+                              key={`shop-sell-${slotIndex}`}
+                              className="flex flex-col gap-3 rounded-md border border-amber-700/25 bg-stone-950/70 p-3 sm:flex-row sm:items-center sm:justify-between"
+                            >
+                              <div className="flex items-center gap-3">
+                                {storedItem.image ? (
+                                  <>
+                                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                                    <img
+                                      src={resolveItemImage(storedItem.image)}
+                                      alt={storedItem.name}
+                                      className="h-12 w-12 object-contain"
+                                    />
+                                  </>
+                                ) : null}
+                                <div>
+                                  <p className="font-medium text-amber-100">{storedItem.name}</p>
+                                  <p className="text-xs text-stone-400">
+                                    Valor base {storedItem.cost} monedas
+                                  </p>
+                                </div>
+                              </div>
+                              <Button
+                                type="button"
+                                variant="secondary"
+                                onClick={() => handleShopSell(slotIndex)}
+                                className="shrink-0"
+                              >
+                                Vender por {sellPrice} monedas
+                              </Button>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+
+                  <Button type="button" onClick={handleLeaveShop} className="w-full">
+                    Salir de la tienda
+                  </Button>
+                </div>
+              )}
+
               {game.phase === "dayStage3" && (
                 <div className="space-y-4">
                   <div className="rounded-lg border border-amber-700/25 bg-stone-900/60 p-4">
@@ -1634,9 +1960,29 @@ export default function GamePage() {
                       </Button>
                     </div>
                   ) : (
-                    <Button onClick={handleFinishEnemyEncounter} className="w-full">
-                      Continuar
-                    </Button>
+                    <div className="space-y-3">
+                      {game.combat?.status === "won" && game.pendingDrop && (
+                        <div className="rounded-lg border border-emerald-700/35 bg-emerald-950/20 p-4 text-sm text-stone-100">
+                          <p className="font-semibold text-emerald-200">Botin obtenido</p>
+                          <p className="mt-1">
+                            {game.pendingDrop.name} — guardado en inventario
+                          </p>
+                          {game.pendingDrop.image && (
+                            <>
+                              {/* eslint-disable-next-line @next/next/no-img-element */}
+                              <img
+                                src={resolveItemImage(game.pendingDrop.image)}
+                                alt={game.pendingDrop.name}
+                                className="mt-2 h-16 w-16 object-contain"
+                              />
+                            </>
+                          )}
+                        </div>
+                      )}
+                      <Button onClick={handleFinishEnemyEncounter} className="w-full">
+                        Continuar
+                      </Button>
+                    </div>
                   )}
                 </div>
               )}
@@ -1715,34 +2061,24 @@ export default function GamePage() {
                         {game.pendingDrop.name}
                       </h4>
                       <p className="text-sm text-stone-300">
-                        Rareza: {game.pendingDrop.rarity} - Valor de venta: {game.pendingDrop.cost} monedas
+                        Rareza: {game.pendingDrop.rarity} — guardado en inventario
                       </p>
                       {game.pendingDrop.image && (
                         <div className="mt-3 overflow-hidden rounded-lg border border-amber-700/30 bg-stone-950/70">
                           {/* eslint-disable-next-line @next/next/no-img-element */}
                           <img
-                            src={game.pendingDrop.image}
+                            src={resolveItemImage(game.pendingDrop.image)}
                             alt={game.pendingDrop.name}
                             className="h-40 w-full object-contain p-3"
                           />
                         </div>
                       )}
-                      <div className="mt-4 grid gap-3 md:grid-cols-2">
-                        <Button type="button" variant="secondary" onClick={handleEquipDroppedWeapon}>
-                          Quedarsela y equipar
-                        </Button>
-                        <Button type="button" onClick={handleSellDroppedWeapon}>
-                          Vender por {game.pendingDrop.cost} monedas
-                        </Button>
-                      </div>
                     </div>
                   )}
 
-                  {!game.pendingDrop && (
-                    <Button onClick={handleContinue} className="w-full">
-                      Continuar al siguiente turno
-                    </Button>
-                  )}
+                  <Button onClick={handleContinue} className="w-full">
+                    Continuar al siguiente turno
+                  </Button>
                 </div>
               )}
 
@@ -1784,86 +2120,66 @@ export default function GamePage() {
             </CardHeader>
             <CardContent className="flex flex-1 flex-col space-y-4 text-sm">
               <div className="grid grid-cols-3 gap-1.5">
-                <div className="flex h-14 flex-col items-center justify-center rounded-md border border-amber-700/20 bg-stone-900/70 px-1 text-center">
-                  <p className="text-[10px] text-stone-400">Hombrera</p>
-                  <p className="text-[11px] text-stone-300">Vacio</p>
-                </div>
-                <div className="flex h-14 flex-col items-center justify-center rounded-md border border-amber-700/20 bg-stone-900/70 px-1 text-center">
-                  <p className="text-[10px] text-stone-400">Casco</p>
-                  <p className="text-[11px] text-stone-300">Vacio</p>
-                </div>
-                <div className="flex h-14 flex-col items-center justify-center rounded-md border border-amber-700/20 bg-stone-900/70 px-1 text-center">
-                  <p className="text-[10px] text-stone-400">Capa</p>
-                  <p className="text-[11px] text-stone-300">Vacio</p>
-                </div>
+                {EQUIPMENT_LAYOUT.map((slot) => {
+                  if (slot.span === "hidden") {
+                    return <div key={slot.key} aria-hidden className="h-14" />;
+                  }
 
-                <div className="flex h-14 flex-col items-center justify-center rounded-md border border-amber-700/20 bg-stone-900/70 px-1 text-center">
-                  <p className="text-[10px] text-stone-400">Guantes</p>
-                  <p className="text-[11px] text-stone-300">Vacio</p>
-                </div>
-                <div className="flex h-14 flex-col items-center justify-center rounded-md border border-amber-700/20 bg-stone-900/70 px-1 text-center">
-                  <p className="text-[10px] text-stone-400">Pechera</p>
-                  <p className="text-[11px] text-stone-300">Vacio</p>
-                </div>
-                <div className="flex h-14 flex-col items-center justify-center rounded-md border border-amber-700/20 bg-stone-900/70 px-1 text-center">
-                  <p className="text-[10px] text-stone-400">Brazaletes</p>
-                  <p className="text-[11px] text-stone-300">Vacio</p>
-                </div>
+                  const equippedItem = getEquippedItemForSlot(slot.key);
 
-                <div className="flex h-14 flex-col items-center justify-center rounded-md border border-amber-700/20 bg-stone-900/70 px-1 text-center">
-                  <p className="text-[10px] text-amber-300/90">Mano secundaria</p>
-                  {equippedOffHandItem?.image ? (
-                    <>
-                      {/* eslint-disable-next-line @next/next/no-img-element */}
-                      <img
-                        src={equippedOffHandItem.image}
-                        alt={equippedOffHandItem.name}
-                        className="my-0.5 h-6 w-6 object-contain"
-                      />
-                      <p className="line-clamp-1 text-[10px] text-amber-100">{equippedOffHandItem.name}</p>
-                    </>
-                  ) : (
-                    <p className="line-clamp-2 text-[10px] text-stone-300">
-                      {formatEquipmentSlotLabel(game.player.equipment.mano_secundaria)}
-                    </p>
-                  )}
-                </div>
-                <div className="flex h-14 flex-col items-center justify-center rounded-md border border-amber-700/20 bg-stone-900/70 px-1 text-center">
-                  <p className="text-[10px] text-stone-400">Cinturon</p>
-                  <p className="text-[11px] text-stone-300">Vacio</p>
-                </div>
-                <div className="flex h-14 flex-col items-center justify-center rounded-md border border-amber-700/20 bg-stone-900/70 px-1 text-center">
-                  <p className="text-[10px] text-amber-300/90">Mano principal</p>
-                  {equippedMainHandItem?.image ? (
-                    <>
-                      {/* eslint-disable-next-line @next/next/no-img-element */}
-                      <img
-                        src={equippedMainHandItem.image}
-                        alt={equippedMainHandItem.name}
-                        className="my-0.5 h-6 w-6 object-contain"
-                      />
-                      <p className="line-clamp-1 text-[10px] text-amber-100">{equippedMainHandItem.name}</p>
-                    </>
-                  ) : (
-                    <p className="line-clamp-2 text-[10px] text-stone-300">
-                      {formatEquipmentSlotLabel(game.player.equipment.mano_principal)}
-                    </p>
-                  )}
-                </div>
-
-                <div aria-hidden className="h-14" />
-                <div className="flex h-14 flex-col items-center justify-center rounded-md border border-amber-700/20 bg-stone-900/70 px-1 text-center">
-                  <p className="text-[10px] text-stone-400">Pantalon</p>
-                  <p className="text-[11px] text-stone-300">Vacio</p>
-                </div>
-                <div aria-hidden className="h-14" />
-
-                <div aria-hidden className="h-14" />
-                <div className="flex h-14 flex-col items-center justify-center rounded-md border border-amber-700/20 bg-stone-900/70 px-1 text-center">
-                  <p className="text-[10px] text-stone-400">Botas</p>
-                  <p className="text-[11px] text-stone-300">Vacio</p>
-                </div>
-                <div aria-hidden className="h-14" />
+                  return (
+                    <button
+                      type="button"
+                      key={slot.key}
+                      onClick={() => handleEquipmentSlotClick(slot.key)}
+                      disabled={!equippedItem}
+                      className={`group relative flex h-14 flex-col items-center justify-center rounded-md border px-1 text-center transition ${
+                        equippedItem
+                          ? "border-amber-500/35 bg-amber-950/25 hover:bg-amber-950/45"
+                          : "cursor-default border-amber-700/20 bg-stone-900/70"
+                      }`}
+                    >
+                      <p className="text-[10px] text-stone-400">{slot.label}</p>
+                      {equippedItem ? (
+                        <>
+                          {equippedItem.image ? (
+                            <>
+                              {/* eslint-disable-next-line @next/next/no-img-element */}
+                              <img
+                                src={resolveItemImage(equippedItem.image)}
+                                alt={equippedItem.name}
+                                className="my-0.5 h-6 w-6 object-contain"
+                              />
+                            </>
+                          ) : null}
+                          <p className="line-clamp-1 text-[10px] text-amber-100">{equippedItem.name}</p>
+                        </>
+                      ) : (
+                        <p className="line-clamp-2 text-[10px] text-stone-300">Vacio</p>
+                      )}
+                      {equippedItem ? (
+                        <span className="pointer-events-none absolute bottom-[calc(100%+0.5rem)] left-1/2 z-20 hidden w-48 -translate-x-1/2 rounded-lg border border-amber-500/35 bg-stone-950/90 p-2 text-left shadow-lg shadow-black/40 backdrop-blur-sm group-hover:block group-focus-visible:block">
+                          <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-amber-200">
+                            Click para desequipar
+                          </p>
+                          {getItemEffectLines(equippedItem.effects).length > 0 && (
+                            <ul className="mt-1 border-t border-amber-700/30 pt-1 text-[11px]">
+                              {getItemEffectLines(equippedItem.effects).map((effect) => (
+                                <li
+                                  key={`${slot.key}-${effect.key}`}
+                                  className={effect.value > 0 ? "text-emerald-300" : "text-red-300"}
+                                >
+                                  {effect.value > 0 ? "+" : ""}
+                                  {effect.value} {effect.label}
+                                </li>
+                              ))}
+                            </ul>
+                          )}
+                        </span>
+                      ) : null}
+                    </button>
+                  );
+                })}
               </div>
 
               <div className="border-t border-amber-700/25 pt-3">
@@ -1871,13 +2187,20 @@ export default function GamePage() {
                   Inventario
                 </p>
                 <div className="grid grid-cols-4 gap-1.5">
-                  {game.player.inventory.map((weaponId, slotIndex) => {
-                    const storedItem = weaponId ? weaponItems.find((item) => item.id === weaponId) : null;
+                  {game.player.inventory.map((itemId, slotIndex) => {
+                    const storedItem = itemId ? findItemById(itemCatalog, itemId) : null;
 
                     return (
-                      <div
+                      <button
+                        type="button"
                         key={`inventory-slot-${slotIndex}`}
-                        className="flex aspect-square flex-col items-center justify-center rounded-md border border-amber-700/20 bg-stone-900/70 p-1 text-center"
+                        onClick={() => handleInventoryItemClick(slotIndex)}
+                        disabled={!storedItem}
+                        className={`group relative flex aspect-square flex-col items-center justify-center rounded-md border p-1 text-center transition ${
+                          storedItem
+                            ? "border-amber-700/20 bg-stone-900/70 hover:border-amber-500/40 hover:bg-stone-900"
+                            : "cursor-default border-amber-700/20 bg-stone-900/70"
+                        }`}
                       >
                         {storedItem ? (
                           <>
@@ -1885,18 +2208,38 @@ export default function GamePage() {
                               <>
                                 {/* eslint-disable-next-line @next/next/no-img-element */}
                                 <img
-                                  src={storedItem.image}
+                                  src={resolveItemImage(storedItem.image)}
                                   alt={storedItem.name}
                                   className="h-8 w-8 object-contain"
                                 />
                               </>
                             ) : null}
                             <p className="line-clamp-2 text-[9px] leading-tight text-amber-100">{storedItem.name}</p>
+                            <span className="pointer-events-none absolute bottom-[calc(100%+0.5rem)] left-1/2 z-20 hidden w-48 -translate-x-1/2 rounded-lg border border-amber-500/35 bg-stone-950/90 p-2 text-left shadow-lg shadow-black/40 backdrop-blur-sm group-hover:block group-focus-visible:block">
+                              <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-amber-200">
+                                {isConsumableItem(storedItem)
+                                  ? "Click para consumir"
+                                  : `Click para equipar en ${storedItem.slot}`}
+                              </p>
+                              {getItemEffectLines(storedItem.effects).length > 0 && (
+                                <ul className="mt-1 border-t border-amber-700/30 pt-1 text-[11px]">
+                                  {getItemEffectLines(storedItem.effects).map((effect) => (
+                                    <li
+                                      key={`${slotIndex}-${effect.key}`}
+                                      className={effect.value > 0 ? "text-emerald-300" : "text-red-300"}
+                                    >
+                                      {effect.value > 0 ? "+" : ""}
+                                      {effect.value} {effect.label}
+                                    </li>
+                                  ))}
+                                </ul>
+                              )}
+                            </span>
                           </>
                         ) : (
                           <p className="text-[10px] text-stone-500">—</p>
                         )}
-                      </div>
+                      </button>
                     );
                   })}
                 </div>

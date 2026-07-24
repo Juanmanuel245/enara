@@ -1,20 +1,26 @@
 import type { HeroStats } from "@/lib/player";
 import { getSupabaseBrowserClient } from "@/lib/supabase";
-import localWeaponCatalog from "@/data/items_weapons.json";
+import localItemCatalog from "@/data/items.json";
 
-export type WeaponItem = {
+export type GameItem = {
   id: string;
   name: string;
-  slot: "mano_principal" | "mano_secundaria";
+  slot: string;
   rarity: string;
   cost: number;
   image?: string;
   effects: Partial<Record<keyof HeroStats, number>>;
   dropRatePercent: number;
+  isDropping: boolean;
+  isSelling: boolean;
+  nivel: number;
 };
 
-export type ArmaRow = {
-  idarma: number;
+/** @deprecated Usar GameItem */
+export type WeaponItem = GameItem;
+
+export type ItemRow = {
+  id: number;
   nombre: string;
   valor: number;
   drop: number;
@@ -28,10 +34,22 @@ export type ArmaRow = {
   salud: number;
   rareza: string;
   tipo: string;
+  nivel: number;
 };
 
-export const ARMA_SELECT_COLUMNS =
-  "idarma, nombre, valor, drop, is_dropping, is_selling, imagen, slot, ataque, defensa, agilidad, salud, rareza, tipo";
+export const ITEM_SELECT_COLUMNS =
+  "id, nombre, valor, drop, is_dropping, is_selling, imagen, slot, ataque, defensa, agilidad, salud, rareza, tipo, nivel";
+
+/** @deprecated Usar ITEM_SELECT_COLUMNS */
+export const ARMA_SELECT_COLUMNS = ITEM_SELECT_COLUMNS;
+
+export const CONSUMABLE_SLOT = "consumible";
+
+export const DROP_POOL_SIZE = 100;
+/** Porcentaje de slots vacios en el pool de drop (0-100). Ajusta segun necesites. */
+export const DROP_EMPTY_PERCENT = 10;
+/** Drop maximo permitido por item (0-100). */
+export const DROP_RATE_MAX_PERCENT = 50;
 
 const allowedEffectKeys: (keyof HeroStats)[] = [
   "fuerza",
@@ -46,13 +64,13 @@ const allowedEffectKeys: (keyof HeroStats)[] = [
 
 const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value));
 
-const normalizeEffects = (effects: unknown): WeaponItem["effects"] => {
+const normalizeEffects = (effects: unknown): GameItem["effects"] => {
   if (!effects || typeof effects !== "object") {
     return {};
   }
 
   const source = effects as Record<string, unknown>;
-  const normalized: WeaponItem["effects"] = {};
+  const normalized: GameItem["effects"] = {};
 
   for (const key of allowedEffectKeys) {
     const raw = source[key];
@@ -64,19 +82,55 @@ const normalizeEffects = (effects: unknown): WeaponItem["effects"] => {
   return normalized;
 };
 
-export const normalizeWeaponItem = (weapon: unknown): WeaponItem | null => {
-  if (!weapon || typeof weapon !== "object") {
+export const normalizeItemSlot = (slot: string): string => {
+  const trimmed = slot.trim();
+  if (trimmed === "mainHand") {
+    return "mano_principal";
+  }
+  if (trimmed === "offHand") {
+    return "mano_secundaria";
+  }
+  return trimmed.toLowerCase();
+};
+
+export const isConsumableItem = (item: Pick<GameItem, "slot">) =>
+  normalizeItemSlot(item.slot) === CONSUMABLE_SLOT;
+
+export const normalizeGameItem = (raw: unknown): GameItem | null => {
+  if (!raw || typeof raw !== "object") {
     return null;
   }
 
-  const item = weapon as Partial<WeaponItem>;
+  const item = raw as Partial<GameItem & { is_dropping?: boolean; is_selling?: boolean; drop?: number }>;
+  if (typeof item.id !== "string" || typeof item.name !== "string" || typeof item.slot !== "string") {
+    return null;
+  }
+
+  const slot = normalizeItemSlot(item.slot);
+  const dropRatePercent =
+    typeof item.dropRatePercent === "number"
+      ? item.dropRatePercent
+      : typeof item.drop === "number"
+        ? item.drop
+        : null;
+  const isDropping =
+    typeof item.isDropping === "boolean"
+      ? item.isDropping
+      : typeof item.is_dropping === "boolean"
+        ? item.is_dropping
+        : true;
+  const isSelling =
+    typeof item.isSelling === "boolean"
+      ? item.isSelling
+      : typeof item.is_selling === "boolean"
+        ? item.is_selling
+        : false;
+  const nivel = typeof item.nivel === "number" && Number.isFinite(item.nivel) ? Math.max(1, Math.round(item.nivel)) : 1;
+
   if (
-    typeof item.id !== "string" ||
-    typeof item.name !== "string" ||
-    (item.slot !== "mano_principal" && item.slot !== "mano_secundaria") ||
     typeof item.rarity !== "string" ||
     typeof item.cost !== "number" ||
-    typeof item.dropRatePercent !== "number"
+    dropRatePercent === null
   ) {
     return null;
   }
@@ -84,29 +138,23 @@ export const normalizeWeaponItem = (weapon: unknown): WeaponItem | null => {
   return {
     id: item.id,
     name: item.name,
-    slot: item.slot,
+    slot,
     rarity: item.rarity,
     cost: Math.max(0, Math.round(item.cost)),
-    image: typeof item.image === "string" ? item.image : undefined,
+    image: typeof item.image === "string" && item.image.trim().length > 0 ? item.image : undefined,
     effects: normalizeEffects(item.effects),
-    dropRatePercent: clamp(item.dropRatePercent, 0, 100)
+    dropRatePercent: clamp(dropRatePercent, 0, DROP_RATE_MAX_PERCENT),
+    isDropping,
+    isSelling,
+    nivel
   };
 };
 
-const normalizeWeaponSlot = (slot: string): WeaponItem["slot"] | null => {
-  if (slot === "mano_principal" || slot === "mainHand") {
-    return "mano_principal";
-  }
+/** @deprecated Usar normalizeGameItem */
+export const normalizeWeaponItem = normalizeGameItem;
 
-  if (slot === "mano_secundaria" || slot === "offHand") {
-    return "mano_secundaria";
-  }
-
-  return null;
-};
-
-const buildWeaponEffects = (row: ArmaRow): WeaponItem["effects"] => {
-  const effects: WeaponItem["effects"] = {};
+const buildItemEffects = (row: ItemRow): GameItem["effects"] => {
+  const effects: GameItem["effects"] = {};
 
   if (row.ataque) {
     effects.dano = row.ataque;
@@ -124,26 +172,26 @@ const buildWeaponEffects = (row: ArmaRow): WeaponItem["effects"] => {
   return effects;
 };
 
-export const mapArmaRowToWeaponItem = (row: ArmaRow): WeaponItem | null => {
-  const slot = normalizeWeaponSlot(row.slot);
-  if (!slot) {
-    return null;
-  }
-
-  return normalizeWeaponItem({
-    id: String(row.idarma),
+export const mapItemRowToGameItem = (row: ItemRow): GameItem | null =>
+  normalizeGameItem({
+    id: String(row.id),
     name: row.nombre,
-    slot,
+    slot: normalizeItemSlot(row.slot),
     rarity: row.rareza,
     cost: row.valor,
-    image: row.imagen,
-    effects: buildWeaponEffects(row),
-    dropRatePercent: row.drop
+    image: row.imagen ?? undefined,
+    effects: buildItemEffects(row),
+    dropRatePercent: row.drop,
+    isDropping: row.is_dropping,
+    isSelling: row.is_selling,
+    nivel: row.nivel
   });
-};
 
-export const mapArmaRowToWeaponJson = (row: ArmaRow) => {
-  const item = mapArmaRowToWeaponItem(row);
+/** @deprecated Usar mapItemRowToGameItem */
+export const mapArmaRowToWeaponItem = mapItemRowToGameItem;
+
+export const mapItemRowToJson = (row: ItemRow) => {
+  const item = mapItemRowToGameItem(row);
   if (!item) {
     return null;
   }
@@ -156,40 +204,123 @@ export const mapArmaRowToWeaponJson = (row: ArmaRow) => {
     cost: item.cost,
     image: item.image,
     effects: item.effects,
-    dropRatePercent: item.dropRatePercent
+    dropRatePercent: item.dropRatePercent,
+    isDropping: item.isDropping,
+    isSelling: item.isSelling,
+    nivel: item.nivel
   };
 };
 
-export const getLocalWeaponItems = (): WeaponItem[] =>
-  (localWeaponCatalog as unknown[]).map(normalizeWeaponItem).filter((item): item is WeaponItem => item !== null);
+/** @deprecated Usar mapItemRowToJson */
+export const mapArmaRowToWeaponJson = mapItemRowToJson;
 
-export const fetchWeaponItems = async (): Promise<WeaponItem[]> => {
+export const getLocalItems = (): GameItem[] =>
+  (localItemCatalog as unknown[]).map(normalizeGameItem).filter((item): item is GameItem => item !== null);
+
+/** @deprecated Usar getLocalItems */
+export const getLocalWeaponItems = getLocalItems;
+
+export const fetchItems = async (): Promise<GameItem[]> => {
   const supabase = getSupabaseBrowserClient();
   if (!supabase) {
-    return getLocalWeaponItems();
+    return getLocalItems();
   }
 
   const { data, error } = await supabase
-    .from("armas")
-    .select(ARMA_SELECT_COLUMNS)
-    .eq("is_dropping", true)
-    .order("idarma", { ascending: true });
+    .from("items")
+    .select(ITEM_SELECT_COLUMNS)
+    .order("id", { ascending: true });
 
   if (error || !data) {
-    return getLocalWeaponItems();
+    return getLocalItems();
   }
 
-  const normalized = (data as ArmaRow[])
-    .map(mapArmaRowToWeaponItem)
-    .filter((item): item is WeaponItem => item !== null);
+  const normalized = (data as ItemRow[])
+    .map(mapItemRowToGameItem)
+    .filter((item): item is GameItem => item !== null);
 
-  return normalized.length > 0 ? normalized : getLocalWeaponItems();
+  return normalized.length > 0 ? normalized : getLocalItems();
 };
 
-export const warmupWeaponCatalog = async (): Promise<void> => {
+/** @deprecated Usar fetchItems */
+export const fetchWeaponItems = fetchItems;
+
+export const warmupItemCatalog = async (): Promise<void> => {
   try {
-    await fetchWeaponItems();
+    await fetchItems();
   } catch {
     // No bloqueamos la creacion de personaje si falla la precarga.
   }
+};
+
+/** @deprecated Usar warmupItemCatalog */
+export const warmupWeaponCatalog = warmupItemCatalog;
+
+export const buildDropPool = (
+  items: GameItem[],
+  enemy: { nivel: number; drop_bonus: number }
+): (GameItem | null)[] => {
+  const eligible = items.filter((item) => item.isDropping && item.nivel <= enemy.nivel);
+  if (eligible.length === 0) {
+    return Array.from({ length: DROP_POOL_SIZE }, () => null);
+  }
+
+  const weights = eligible.map((item) => item.dropRatePercent * enemy.drop_bonus);
+  const totalWeight = weights.reduce((sum, weight) => sum + weight, 0);
+  if (totalWeight <= 0) {
+    return Array.from({ length: DROP_POOL_SIZE }, () => null);
+  }
+
+  const emptyCount = Math.round(DROP_POOL_SIZE * (clamp(DROP_EMPTY_PERCENT, 0, 100) / 100));
+  const itemSlotCount = DROP_POOL_SIZE - emptyCount;
+  const pool: (GameItem | null)[] = Array.from({ length: emptyCount }, () => null);
+
+  let assigned = 0;
+  eligible.forEach((item, index) => {
+    const isLast = index === eligible.length - 1;
+    const count = isLast
+      ? Math.max(0, itemSlotCount - assigned)
+      : Math.max(0, Math.round((weights[index] / totalWeight) * itemSlotCount));
+    assigned += count;
+    for (let slot = 0; slot < count; slot += 1) {
+      pool.push(item);
+    }
+  });
+
+  while (pool.length < DROP_POOL_SIZE) {
+    pool.push(null);
+  }
+
+  return pool.slice(0, DROP_POOL_SIZE);
+};
+
+export const rollDroppedItem = (
+  items: GameItem[],
+  enemy: { nivel: number; drop_bonus: number }
+): GameItem | null => {
+  const pool = buildDropPool(items, enemy);
+  if (pool.length === 0) {
+    return null;
+  }
+
+  const picked = pool[Math.floor(Math.random() * pool.length)];
+  return picked ?? null;
+};
+
+export const findItemById = (items: GameItem[], itemId: string | null | undefined) =>
+  itemId ? items.find((item) => item.id === itemId) ?? null : null;
+
+export const sumItemEffects = (items: Pick<GameItem, "effects">[]): Partial<Record<keyof HeroStats, number>> => {
+  const totals: Partial<Record<keyof HeroStats, number>> = {};
+
+  items.forEach((item) => {
+    (Object.keys(item.effects) as (keyof HeroStats)[]).forEach((key) => {
+      const value = item.effects[key];
+      if (typeof value === "number" && Number.isFinite(value)) {
+        totals[key] = (totals[key] ?? 0) + value;
+      }
+    });
+  });
+
+  return totals;
 };

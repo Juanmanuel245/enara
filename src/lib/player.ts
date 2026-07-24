@@ -263,10 +263,25 @@ export type HeroSecondaryStats = {
 export type PrimaryWeapon = (typeof PRIMARY_WEAPON_OPTIONS)[number];
 export type SecondaryWeapon = (typeof SECONDARY_WEAPON_OPTIONS)[number];
 
-export type HeroEquipment = {
-  mano_principal: string;
-  mano_secundaria: string;
-};
+export type HeroEquipment = Record<string, string | null>;
+
+export const EQUIPMENT_LAYOUT: { key: string; label: string; span?: "hidden" }[] = [
+  { key: "hombrera", label: "Hombrera" },
+  { key: "casco", label: "Casco" },
+  { key: "capa", label: "Capa" },
+  { key: "guantes", label: "Guantes" },
+  { key: "pechera", label: "Pechera" },
+  { key: "brazaletes", label: "Brazaletes" },
+  { key: "mano_secundaria", label: "Mano secundaria" },
+  { key: "cinturon", label: "Cinturon" },
+  { key: "mano_principal", label: "Mano principal" },
+  { key: "slot_spacer_left", label: "", span: "hidden" },
+  { key: "pantalon", label: "Pantalon" },
+  { key: "slot_spacer_right", label: "", span: "hidden" },
+  { key: "slot_spacer_bottom_left", label: "", span: "hidden" },
+  { key: "botas", label: "Botas" },
+  { key: "slot_spacer_bottom_right", label: "", span: "hidden" }
+];
 
 export const INVENTORY_CAPACITY = 12;
 
@@ -297,7 +312,287 @@ const getRandomStat = () => Math.floor(Math.random() * 10) + 1;
 const isFiniteNumber = (value: unknown): value is number => typeof value === "number" && Number.isFinite(value);
 const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value));
 
-export const formatEquipmentSlotLabel = (value: string) => (value.trim().length > 0 ? value.trim() : "Vacio");
+export const formatEquipmentSlotLabel = (value: string | null | undefined) =>
+  typeof value === "string" && value.trim().length > 0 ? value.trim() : "Vacio";
+
+export const normalizeEquipment = (raw: unknown): HeroEquipment => {
+  const equipment = createInitialEquipment();
+
+  if (!raw || typeof raw !== "object") {
+    return equipment;
+  }
+
+  const source = raw as Record<string, unknown> & {
+    mano_principal?: unknown;
+    mano_secundaria?: unknown;
+    mainHand?: unknown;
+    offHand?: unknown;
+  };
+
+  Object.keys(equipment).forEach((slotKey) => {
+    const value = source[slotKey];
+    equipment[slotKey] = typeof value === "string" && value.trim().length > 0 ? value.trim() : null;
+  });
+
+  const legacyMain =
+    typeof source.mano_principal === "string"
+      ? source.mano_principal.trim()
+      : typeof source.mainHand === "string"
+        ? source.mainHand.trim()
+        : "";
+  const legacyOff =
+    typeof source.mano_secundaria === "string"
+      ? source.mano_secundaria.trim()
+      : typeof source.offHand === "string"
+        ? source.offHand.trim()
+        : "";
+
+  if (legacyMain.length > 0 && !equipment.mano_principal) {
+    equipment.mano_principal = legacyMain;
+  }
+  if (legacyOff.length > 0 && !equipment.mano_secundaria) {
+    equipment.mano_secundaria = legacyOff;
+  }
+
+  return equipment;
+};
+
+export type InventoryMutationResult =
+  | { ok: true; player: PlayerProfile; message?: string }
+  | { ok: false; player: PlayerProfile; message: string };
+
+export const addItemToInventory = (player: PlayerProfile, itemId: string): InventoryMutationResult => {
+  const emptyIndex = player.inventory.findIndex((slot) => slot === null);
+  if (emptyIndex === -1) {
+    return { ok: false, player, message: "Inventario lleno." };
+  }
+
+  const nextInventory = [...player.inventory];
+  nextInventory[emptyIndex] = itemId;
+
+  return {
+    ok: true,
+    player: {
+      ...player,
+      inventory: nextInventory
+    }
+  };
+};
+
+export const sellItemFromInventoryAt = (
+  player: PlayerProfile,
+  slotIndex: number,
+  sellPrice: number
+): InventoryMutationResult => {
+  const inventoryItemId = player.inventory[slotIndex];
+  if (!inventoryItemId) {
+    return { ok: false, player, message: "No hay item en ese slot." };
+  }
+
+  const withoutItem = removeItemFromInventoryAt(player, slotIndex);
+
+  return {
+    ok: true,
+    player: {
+      ...withoutItem,
+      coins: withoutItem.coins + sellPrice
+    },
+    message: `Vendiste el item por ${sellPrice} monedas.`
+  };
+};
+
+export const buyItemToInventory = (
+  player: PlayerProfile,
+  itemId: string,
+  buyPrice: number
+): InventoryMutationResult => {
+  if (player.coins < buyPrice) {
+    return { ok: false, player, message: "No tenes monedas suficientes." };
+  }
+
+  const inventoryResult = addItemToInventory(player, itemId);
+  if (!inventoryResult.ok) {
+    return inventoryResult;
+  }
+
+  return {
+    ok: true,
+    player: {
+      ...inventoryResult.player,
+      coins: inventoryResult.player.coins - buyPrice
+    },
+    message: "Compraste el item."
+  };
+};
+
+export const removeItemFromInventoryAt = (player: PlayerProfile, slotIndex: number): PlayerProfile => {
+  if (slotIndex < 0 || slotIndex >= player.inventory.length) {
+    return player;
+  }
+
+  const nextInventory = [...player.inventory];
+  nextInventory[slotIndex] = null;
+
+  return {
+    ...player,
+    inventory: nextInventory
+  };
+};
+
+export const applyItemEffectsToPlayer = (
+  player: PlayerProfile,
+  effects: Partial<Record<keyof HeroStats, number>>
+): PlayerProfile => {
+  const next: HeroStats = { ...player.stats };
+  const reputationDelta = effects.reputacion ?? 0;
+
+  (Object.keys(effects) as (keyof HeroStats)[]).forEach((key) => {
+    if (key === "reputacion") {
+      return;
+    }
+    if (key === "dano") {
+      next.fuerza += effects[key] ?? 0;
+      return;
+    }
+    next[key] = next[key] + (effects[key] ?? 0);
+  });
+
+  const ranked = applyReputationGain(player.reputacionNivel, player.stats.reputacion, reputationDelta);
+
+  return {
+    ...player,
+    reputacionNivel: ranked.reputacionNivel,
+    stats: {
+      fuerza: clamp(next.fuerza, 1, 30),
+      carisma: clamp(next.carisma, 1, 30),
+      agilidad: clamp(next.agilidad, 1, 30),
+      suerte: clamp(next.suerte, 1, 30),
+      reputacion: ranked.reputacion,
+      vida: clamp(next.vida, 1, next.vidaMax),
+      vidaMax: clamp(next.vidaMax, DEFAULT_HERO_VIDA, MAX_HERO_VIDA),
+      dano: 0,
+      defensa: clamp(next.defensa, 0, 30)
+    }
+  };
+};
+
+export const consumeItemFromInventory = (
+  player: PlayerProfile,
+  slotIndex: number,
+  item: { effects: Partial<Record<keyof HeroStats, number>> }
+): InventoryMutationResult => {
+  const inventoryItemId = player.inventory[slotIndex];
+  if (!inventoryItemId) {
+    return { ok: false, player, message: "No hay item en ese slot." };
+  }
+
+  const withoutItem = removeItemFromInventoryAt(player, slotIndex);
+  const updated = applyItemEffectsToPlayer(withoutItem, item.effects);
+
+  return {
+    ok: true,
+    player: updated,
+    message: "Consumiste el item."
+  };
+};
+
+export const equipItemFromInventory = (
+  player: PlayerProfile,
+  slotIndex: number,
+  item: { id: string; slot: string }
+): InventoryMutationResult => {
+  const inventoryItemId = player.inventory[slotIndex];
+  if (!inventoryItemId || inventoryItemId !== item.id) {
+    return { ok: false, player, message: "No hay item en ese slot." };
+  }
+
+  const equipmentSlot = item.slot.trim();
+  if (!equipmentSlot || equipmentSlot === "consumible") {
+    return { ok: false, player, message: "Este item no se puede equipar." };
+  }
+
+  const nextEquipment: HeroEquipment = { ...player.equipment };
+  if (!(equipmentSlot in nextEquipment)) {
+    nextEquipment[equipmentSlot] = null;
+  }
+
+  const previouslyEquippedId = nextEquipment[equipmentSlot];
+  const nextInventory = [...player.inventory];
+  nextInventory[slotIndex] = previouslyEquippedId;
+  nextEquipment[equipmentSlot] = item.id;
+
+  return {
+    ok: true,
+    player: {
+      ...player,
+      inventory: nextInventory,
+      equipment: nextEquipment
+    },
+    message: previouslyEquippedId ? "Intercambiaste el item equipado." : "Equipaste el item."
+  };
+};
+
+export const unequipItemToInventory = (
+  player: PlayerProfile,
+  equipmentSlot: string
+): InventoryMutationResult => {
+  const slotKey = equipmentSlot.trim();
+  if (!slotKey || !(slotKey in player.equipment)) {
+    return { ok: false, player, message: "Slot de equipo invalido." };
+  }
+
+  const equippedItemId = player.equipment[slotKey];
+  if (!equippedItemId) {
+    return { ok: false, player, message: "No hay item equipado en ese slot." };
+  }
+
+  const emptyInventoryIndex = player.inventory.findIndex((inventoryItemId) => inventoryItemId === null);
+  if (emptyInventoryIndex === -1) {
+    return { ok: false, player, message: "Inventario lleno." };
+  }
+
+  const nextEquipment: HeroEquipment = { ...player.equipment, [slotKey]: null };
+  const nextInventory = [...player.inventory];
+  nextInventory[emptyInventoryIndex] = equippedItemId;
+
+  return {
+    ok: true,
+    player: {
+      ...player,
+      equipment: nextEquipment,
+      inventory: nextInventory
+    },
+    message: "Desequipaste el item."
+  };
+};
+
+export const migrateLegacyEquipmentIds = (
+  player: PlayerProfile,
+  items: { id: string; name: string }[]
+): PlayerProfile => {
+  const equipment: HeroEquipment = { ...player.equipment };
+  let changed = false;
+
+  Object.keys(equipment).forEach((slotKey) => {
+    const value = equipment[slotKey];
+    if (!value) {
+      return;
+    }
+    if (items.some((item) => item.id === value)) {
+      return;
+    }
+    const byName = items.find((item) => item.name === value);
+    if (byName) {
+      equipment[slotKey] = byName.id;
+      changed = true;
+    }
+  });
+
+  return changed ? { ...player, equipment } : player;
+};
+
+export const getEquippedItemIds = (equipment: HeroEquipment) =>
+  Object.values(equipment).filter((itemId): itemId is string => typeof itemId === "string" && itemId.length > 0);
 
 export const createInitialStats = (): HeroStats => ({
   fuerza: getRandomStat(),
@@ -311,10 +606,8 @@ export const createInitialStats = (): HeroStats => ({
   defensa: 0
 });
 
-export const createInitialEquipment = (): HeroEquipment => ({
-  mano_principal: "",
-  mano_secundaria: ""
-});
+export const createInitialEquipment = (): HeroEquipment =>
+  Object.fromEntries(EQUIPMENT_LAYOUT.filter((slot) => slot.span !== "hidden").map((slot) => [slot.key, null]));
 
 export const createInitialInventory = (): (string | null)[] =>
   Array.from({ length: INVENTORY_CAPACITY }, () => null);
@@ -441,21 +734,8 @@ export const parseStoredPlayer = (rawPlayer: string | null): PlayerProfile | nul
       defensa: isFiniteNumber(player?.stats?.defensa) ? clamp(player.stats.defensa, 0, 30) : statsFallback.defensa
     } satisfies HeroStats;
 
-    const legacyEquipment = player?.equipment as
-      | (Partial<HeroEquipment> & { mainHand?: string; offHand?: string })
-      | undefined;
-    const manoPrincipal =
-      typeof legacyEquipment?.mano_principal === "string"
-        ? legacyEquipment.mano_principal.trim()
-        : typeof legacyEquipment?.mainHand === "string"
-          ? legacyEquipment.mainHand.trim()
-          : "";
-    const manoSecundaria =
-      typeof legacyEquipment?.mano_secundaria === "string"
-        ? legacyEquipment.mano_secundaria.trim()
-        : typeof legacyEquipment?.offHand === "string"
-          ? legacyEquipment.offHand.trim()
-          : "";
+    const legacyEquipment = player?.equipment;
+    const equipment = normalizeEquipment(legacyEquipment);
     const destinoRaw = player?.destinoInicial;
     const destinoInicial =
       destinoRaw &&
@@ -499,10 +779,7 @@ export const parseStoredPlayer = (rawPlayer: string | null): PlayerProfile | nul
         : DEFAULT_HERO_LEVEL,
       experiencia: isFiniteNumber(player.experiencia) ? Math.max(0, Math.round(player.experiencia)) : 0,
       reputacionNivel: ranked.reputacionNivel,
-      equipment: {
-        mano_principal: manoPrincipal,
-        mano_secundaria: manoSecundaria
-      },
+      equipment,
       inventory: normalizeInventory(player.inventory),
       secondaryStats: normalizeSecondaryStats(player.secondaryStats),
       destinoInicial

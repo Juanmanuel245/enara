@@ -21,9 +21,6 @@ pnpm-debug.log*
 # env files
 .env*
 
-# cache local de armas
-src/data/armas.json
-
 # typescript
 *.tsbuildinfo
 next-env.d.ts

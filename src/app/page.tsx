@@ -25,7 +25,7 @@ import {
   type PlayerProfile,
   parseStoredPlayer
 } from "@/lib/player";
-import { warmupWeaponCatalog, getLocalWeaponItems } from "@/lib/items";
+import { warmupItemCatalog, getLocalItems } from "@/lib/items";
 import { calcHeroAttackPower, getCombatGearFromEquipment } from "@/lib/combat";
 import {
   fetchDestinoInicial,
@@ -104,7 +104,7 @@ export default function Home() {
       return 0;
     }
 
-    const gear = getCombatGearFromEquipment(savedPlayer, getLocalWeaponItems());
+    const gear = getCombatGearFromEquipment(savedPlayer, getLocalItems());
     return calcHeroAttackPower(savedPlayer, gear.weaponDano);
   }, [savedPlayer]);
 
@@ -142,7 +142,7 @@ export default function Home() {
     setSavedPlayer(player);
     setName("");
     await warmupDestinoInicialCatalog();
-    await warmupWeaponCatalog();
+    await warmupItemCatalog();
     setStatusMessage(
       `El aventurero ${cleanedName} esta listo para comenzar su leyenda como ${selectedDestino.name}.`
     );
