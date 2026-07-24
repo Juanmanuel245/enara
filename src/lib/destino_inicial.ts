@@ -58,24 +58,21 @@ export const normalizeDestinoInicial = (raw: unknown): DestinoInicialItem | null
   const experiencia = toNumber(item.experiencia);
   const reputacion = toNumber(item.reputacion);
 
-  const hasRequiredText =
-    typeof item.id === "string" &&
-    item.id.trim().length > 0 &&
-    typeof item.name === "string" &&
-    item.name.trim().length > 0 &&
-    typeof item.description === "string" &&
-    item.description.trim().length > 0;
-
-  const hasRequiredNumbers =
-    fuerza !== null &&
-    agilidad !== null &&
-    carisma !== null &&
-    suerte !== null &&
-    oro !== null &&
-    experiencia !== null &&
-    reputacion !== null;
-
-  if (!hasRequiredText || !hasRequiredNumbers) {
+  if (
+    typeof item.id !== "string" ||
+    item.id.trim().length === 0 ||
+    typeof item.name !== "string" ||
+    item.name.trim().length === 0 ||
+    typeof item.description !== "string" ||
+    item.description.trim().length === 0 ||
+    fuerza === null ||
+    agilidad === null ||
+    carisma === null ||
+    suerte === null ||
+    oro === null ||
+    experiencia === null ||
+    reputacion === null
+  ) {
     return null;
   }
 

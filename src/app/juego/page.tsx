@@ -421,14 +421,15 @@ export default function GamePage() {
   const experienceProgress = game
     ? getHeroExperienceProgress(game.player.experiencia, game.player.nivel)
     : null;
-  const currentDayStage: 1 | 2 | 3 =
-    game.phase === "dayStage2"
+  const currentDayStage: 1 | 2 | 3 = game
+    ? game.phase === "dayStage2"
       ? 2
       : game.phase === "dayStage3"
       ? 3
       : game.phase === "stageMessage"
       ? game.lastStageMessage?.stage ?? 3
-      : 1;
+      : 1
+    : 1;
   const dayStageIndicators: { stage: 1 | 2 | 3; label: string; Icon: typeof Sun }[] = [
     { stage: 1, label: "Sol pleno", Icon: Sun },
     { stage: 2, label: "Atardecer", Icon: Sunset },
