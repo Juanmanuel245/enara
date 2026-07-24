@@ -4,6 +4,7 @@
 alter table public.armas enable row level security;
 alter table public.destino_inicial enable row level security;
 alter table public.misiones enable row level security;
+alter table public.enemigos enable row level security;
 
 drop policy if exists "public can read armas" on public.armas;
 create policy "public can read armas"
@@ -22,6 +23,13 @@ using (true);
 drop policy if exists "public can read misiones" on public.misiones;
 create policy "public can read misiones"
 on public.misiones
+for select
+to anon, authenticated
+using (true);
+
+drop policy if exists "public can read enemigos" on public.enemigos;
+create policy "public can read enemigos"
+on public.enemigos
 for select
 to anon, authenticated
 using (true);

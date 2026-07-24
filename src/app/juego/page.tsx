@@ -35,6 +35,15 @@ import {
   type MissionOption
 } from "@/lib/misiones";
 import {
+  getEncounterChoiceLabel,
+  getLocalEnemigos,
+  normalizeEnemigo,
+  pickRandomEnemigoForEncounter,
+  resolveEnemigoImagen,
+  type DayStage3EncounterChoice,
+  type Enemigo
+} from "@/lib/enemigos";
+import {
   getHeroExperienceProgress,
   getReputationProgress,
   MAX_ENERGIA,
@@ -91,6 +100,7 @@ type GamePhase =
   | "dayStage2"
   | "dayStage3"
   | "stageMessage"
+  | "enemyEncounter"
   | "battle"
   | "finished";
 
@@ -105,6 +115,8 @@ type GameState = {
   lastMissionChoice: LastMissionChoice | null;
   lastStageMessage: StageMessage | null;
   pendingDrop: WeaponItem | null;
+  pendingEnemy: Enemigo | null;
+  pendingEncounterChoice: DayStage3EncounterChoice | null;
 };
 
 const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value));
@@ -221,6 +233,7 @@ const parseStoredGame = (rawGame: string | null): GameState | null => {
         phase === "dayStage2" ||
         phase === "dayStage3" ||
         phase === "stageMessage" ||
+        phase === "enemyEncounter" ||
         phase === "battle" ||
         phase === "finished"
       ) {
@@ -255,6 +268,14 @@ const parseStoredGame = (rawGame: string | null): GameState | null => {
           }
         : null;
 
+    const parsedEncounterChoice = parsed.pendingEncounterChoice;
+    const normalizedEncounterChoice =
+      parsedEncounterChoice === "defend" ||
+      parsedEncounterChoice === "cave" ||
+      parsedEncounterChoice === "dungeon"
+        ? parsedEncounterChoice
+        : null;
+
     return {
       turnIndex: parsed.turnIndex,
       lifeMissionIndex: parsed.lifeMissionIndex,
@@ -265,7 +286,9 @@ const parseStoredGame = (rawGame: string | null): GameState | null => {
       lastBattle: parsed.lastBattle ?? null,
       lastMissionChoice: parsed.lastMissionChoice ?? null,
       lastStageMessage: normalizedStageMessage,
-      pendingDrop: normalizeWeaponItem(parsed.pendingDrop)
+      pendingDrop: normalizeWeaponItem(parsed.pendingDrop),
+      pendingEnemy: normalizeEnemigo(parsed.pendingEnemy),
+      pendingEncounterChoice: normalizedEncounterChoice
     } satisfies GameState;
   } catch {
     return null;
@@ -276,6 +299,7 @@ export default function GamePage() {
   const router = useRouter();
   const [weaponItems, setWeaponItems] = useState<WeaponItem[]>(() => getLocalWeaponItems());
   const [missionItems, setMissionItems] = useState<Mission[]>(() => getLocalMissions());
+  const [enemigoItems] = useState<Enemigo[]>(() => getLocalEnemigos());
   const [game, setGame] = useState<GameState | null>(() => {
     if (typeof window === "undefined") {
       return null;
@@ -303,7 +327,9 @@ export default function GamePage() {
       lastBattle: null,
       lastMissionChoice: null,
       lastStageMessage: null,
-      pendingDrop: null
+      pendingDrop: null,
+      pendingEnemy: null,
+      pendingEncounterChoice: null
     } satisfies GameState;
   });
 
@@ -424,7 +450,7 @@ export default function GamePage() {
   const currentDayStage: 1 | 2 | 3 = game
     ? game.phase === "dayStage2"
       ? 2
-      : game.phase === "dayStage3"
+      : game.phase === "dayStage3" || game.phase === "enemyEncounter"
       ? 3
       : game.phase === "stageMessage"
       ? game.lastStageMessage?.stage ?? 3
@@ -476,6 +502,8 @@ export default function GamePage() {
       lastMissionChoice: null,
       lastStageMessage: null,
       pendingDrop: null,
+      pendingEnemy: null,
+      pendingEncounterChoice: null,
       turnIndex: game.turnIndex + 1,
       lifeMissionIndex: game.lifeMissionIndex + 1,
       situationMissionIndex: game.situationMissionIndex + 1
@@ -584,7 +612,7 @@ export default function GamePage() {
     });
   };
 
-  const handleDayStage3Choice = (choice: "rest" | "defend" | "cave" | "dungeon") => {
+  const handleDayStage3Choice = (choice: "rest" | DayStage3EncounterChoice) => {
     if (!game) {
       return;
     }
@@ -602,22 +630,50 @@ export default function GamePage() {
           text: "Te detuviste a descansar",
           recovered: restResult.recovered
         },
-        pendingDrop: null
+        pendingDrop: null,
+        pendingEnemy: null,
+        pendingEncounterChoice: null
+      });
+      return;
+    }
+
+    const selectedEnemy = pickRandomEnemigoForEncounter(enemigoItems, game.player.nivel, choice);
+
+    if (!selectedEnemy) {
+      persistGame({
+        ...game,
+        phase: "stageMessage",
+        lastBattle: null,
+        lastMissionChoice: null,
+        lastStageMessage: {
+          stage: 3,
+          text: `No encontraste enemigos adecuados para ${getEncounterChoiceLabel(choice).toLowerCase()}.`
+        },
+        pendingDrop: null,
+        pendingEnemy: null,
+        pendingEncounterChoice: null
       });
       return;
     }
 
     persistGame({
       ...game,
-      phase: "stageMessage",
+      phase: "enemyEncounter",
       lastBattle: null,
       lastMissionChoice: null,
-      lastStageMessage: {
-        stage: 3,
-        text: "Hiciste esta accion"
-      },
-      pendingDrop: null
+      lastStageMessage: null,
+      pendingDrop: null,
+      pendingEnemy: selectedEnemy,
+      pendingEncounterChoice: choice
     });
+  };
+
+  const handleContinueEnemyEncounter = () => {
+    if (!game) {
+      return;
+    }
+
+    advanceTurn(game.player, null);
   };
 
   const handleContinueStageMessage = () => {
@@ -698,7 +754,9 @@ export default function GamePage() {
       lastBattle: null,
       lastMissionChoice: null,
       lastStageMessage: null,
-      pendingDrop: null
+      pendingDrop: null,
+      pendingEnemy: null,
+      pendingEncounterChoice: null
     });
   };
 
@@ -1065,6 +1123,54 @@ export default function GamePage() {
                       Ingresar a Mazmorra
                     </Button>
                   </div>
+                </div>
+              )}
+
+              {game.phase === "enemyEncounter" && game.pendingEnemy && game.pendingEncounterChoice && (
+                <div className="space-y-4">
+                  <div className="rounded-lg border border-amber-700/25 bg-stone-900/60 p-4">
+                    <p className="mb-1 text-xs uppercase tracking-[0.2em] text-amber-300/80">
+                      Dia {game.turnIndex} - Etapa 3
+                    </p>
+                    <h3 className="font-[var(--font-cinzel)] text-2xl text-amber-100">
+                      {getEncounterChoiceLabel(game.pendingEncounterChoice)}
+                    </h3>
+                    <p className="mt-2 text-stone-300">
+                      Te cruzaste con un enemigo. La pelea se resolvera en el proximo paso.
+                    </p>
+                  </div>
+
+                  <div className="grid gap-4 md:grid-cols-2">
+                    <div className="overflow-hidden rounded-lg border border-amber-700/25 bg-stone-950/70">
+                      {game.pendingEnemy.imagen ? (
+                        <>
+                          {/* eslint-disable-next-line @next/next/no-img-element */}
+                          <img
+                            src={resolveEnemigoImagen(game.pendingEnemy.imagen)}
+                            alt={game.pendingEnemy.nombre}
+                            className="h-64 w-full object-cover"
+                          />
+                        </>
+                      ) : (
+                        <div className="flex h-64 items-center justify-center bg-stone-900/80 text-stone-400">
+                          Sin imagen
+                        </div>
+                      )}
+                    </div>
+                    <div className="rounded-lg border border-amber-700/25 bg-stone-900/60 p-4 text-sm text-stone-200">
+                      <p className="font-[var(--font-cinzel)] text-xl text-amber-100">{game.pendingEnemy.nombre}</p>
+                      <p className="mt-2">Nivel: {game.pendingEnemy.nivel}</p>
+                      <p>Vida: {game.pendingEnemy.vida}</p>
+                      <p>Ataque: {game.pendingEnemy.ataque}</p>
+                      <p>Defensa: {game.pendingEnemy.defensa}</p>
+                      <p className="mt-2 text-stone-300">Bloqueo: {game.pendingEnemy.bloqueo}</p>
+                      <p className="text-stone-300">Esquiva: {game.pendingEnemy.esquiva}</p>
+                    </div>
+                  </div>
+
+                  <Button onClick={handleContinueEnemyEncounter} className="w-full">
+                    Continuar
+                  </Button>
                 </div>
               )}
 

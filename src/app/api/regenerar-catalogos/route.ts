@@ -6,6 +6,7 @@ import { createClient } from "@supabase/supabase-js";
 
 import { ARMA_SELECT_COLUMNS, mapArmaRowToWeaponJson, type ArmaRow } from "@/lib/items";
 import { normalizeDestinoInicial } from "@/lib/destino_inicial";
+import { ENEMIGO_SELECT_COLUMNS, mapEnemigoRowToJson, type EnemigoRow } from "@/lib/enemigos";
 import { MISION_SELECT_COLUMNS, mapMisionRowToMissionJson, type MisionRow } from "@/lib/misiones";
 
 export const runtime = "nodejs";
@@ -14,6 +15,7 @@ const DATA_DIR = path.join(process.cwd(), "src", "data");
 const ARMAS_FILE_PATH = path.join(DATA_DIR, "armas.json");
 const DESTINO_FILE_PATH = path.join(DATA_DIR, "destino_inicial.json");
 const MISIONES_FILE_PATH = path.join(DATA_DIR, "misiones.json");
+const ENEMIGOS_FILE_PATH = path.join(DATA_DIR, "enemigos.json");
 
 type CatalogResult = {
   file: string;
@@ -214,6 +216,52 @@ const syncMisionesCatalog = async (): Promise<CatalogResult> => {
   };
 };
 
+const syncEnemigosCatalog = async (): Promise<CatalogResult> => {
+  const supabase = getSupabaseServerClient();
+  if (!supabase) {
+    return {
+      file: "enemigos.json",
+      count: 0,
+      status: "error",
+      error: "Faltan NEXT_PUBLIC_SUPABASE_URL o NEXT_PUBLIC_SUPABASE_ANON_KEY."
+    };
+  }
+
+  const { data, error } = await supabase
+    .from("enemigos")
+    .select(ENEMIGO_SELECT_COLUMNS)
+    .order("id", { ascending: true });
+
+  if (error) {
+    return {
+      file: "enemigos.json",
+      count: 0,
+      status: "error",
+      error: error.message
+    };
+  }
+
+  const rows = (data ?? []) as EnemigoRow[];
+  const payload = rows.map(mapEnemigoRowToJson).filter((item): item is NonNullable<typeof item> => item !== null);
+
+  if (payload.length === 0) {
+    return {
+      file: "enemigos.json",
+      count: 0,
+      status: "error",
+      error: emptyCatalogMessage
+    };
+  }
+
+  await recreateJsonFile(ENEMIGOS_FILE_PATH, payload);
+
+  return {
+    file: "enemigos.json",
+    count: payload.length,
+    status: "ok"
+  };
+};
+
 export async function GET() {
   try {
     if (!hasSupabaseConfig()) {
@@ -239,6 +287,12 @@ export async function GET() {
               count: 0,
               status: "error",
               error: "Sin configuracion de Supabase."
+            },
+            enemigos: {
+              file: "enemigos.json",
+              count: 0,
+              status: "error",
+              error: "Sin configuracion de Supabase."
             }
           }
         },
@@ -249,7 +303,12 @@ export async function GET() {
     const itemsWeapons = await syncWeaponsCatalog();
     const destinoInicial = await syncDestinoInicialCatalog();
     const misiones = await syncMisionesCatalog();
-    const ok = itemsWeapons.status === "ok" && destinoInicial.status === "ok" && misiones.status === "ok";
+    const enemigos = await syncEnemigosCatalog();
+    const ok =
+      itemsWeapons.status === "ok" &&
+      destinoInicial.status === "ok" &&
+      misiones.status === "ok" &&
+      enemigos.status === "ok";
 
     return NextResponse.json(
       {
@@ -260,7 +319,8 @@ export async function GET() {
         results: {
           armas: itemsWeapons,
           destino_inicial: destinoInicial,
-          misiones
+          misiones,
+          enemigos
         }
       },
       { status: ok ? 200 : 500 }
