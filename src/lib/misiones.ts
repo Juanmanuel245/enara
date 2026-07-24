@@ -264,7 +264,7 @@ export const filterEligibleMissions = (missions: Mission[], player: PlayerProfil
     (mission) =>
       player.nivel >= mission.minLevel &&
       player.nivel <= mission.maxLevel &&
-      player.stats.reputacion >= mission.minReputation
+      player.reputacionNivel >= mission.minReputation
   );
 
 export const splitMissionsByType = (missions: Mission[]) => {

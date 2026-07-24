@@ -13,17 +13,20 @@ import {
   DEFAULT_ENERGIA,
   DEFAULT_HERO_AGE,
   DEFAULT_HERO_LEVEL,
+  DEFAULT_REPUTATION_RANK,
   createInitialEquipment,
   createInitialStats,
   createInitialInventory,
   createInitialSecondaryStats,
   formatEquipmentSlotLabel,
+  getReputationRankName,
   GAME_STORAGE_KEY,
   PLAYER_STORAGE_KEY,
   type PlayerProfile,
   parseStoredPlayer
 } from "@/lib/player";
-import { warmupWeaponCatalog } from "@/lib/items";
+import { warmupWeaponCatalog, getLocalWeaponItems } from "@/lib/items";
+import { calcHeroAttackPower, getCombatGearFromEquipment } from "@/lib/combat";
 import {
   fetchDestinoInicial,
   pickRandomDestinos,
@@ -96,6 +99,15 @@ export default function Home() {
     [destinoChoices, selectedDestinoId]
   );
 
+  const savedPlayerAttackPower = useMemo(() => {
+    if (!savedPlayer) {
+      return 0;
+    }
+
+    const gear = getCombatGearFromEquipment(savedPlayer, getLocalWeaponItems());
+    return calcHeroAttackPower(savedPlayer, gear.weaponDano);
+  }, [savedPlayer]);
+
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     const cleanedName = name.trim();
@@ -118,6 +130,7 @@ export default function Home() {
       energia: DEFAULT_ENERGIA,
       nivel: DEFAULT_HERO_LEVEL,
       experiencia: 0,
+      reputacionNivel: DEFAULT_REPUTATION_RANK,
       equipment: createInitialEquipment(),
       inventory: createInitialInventory(),
       secondaryStats: createInitialSecondaryStats()
@@ -268,13 +281,14 @@ export default function Home() {
                     <span className="text-stone-400">Agilidad:</span> {savedPlayer.stats.agilidad}
                   </p>
                   <p>
-                    <span className="text-stone-400">Reputacion:</span> {savedPlayer.stats.reputacion}
+                    <span className="text-stone-400">Reconocimiento:</span>{" "}
+                    {getReputationRankName(savedPlayer.reputacionNivel)}
                   </p>
                   <p>
                     <span className="text-stone-400">Vida:</span> {savedPlayer.stats.vida}
                   </p>
                   <p>
-                    <span className="text-stone-400">Daño:</span> {savedPlayer.stats.dano}
+                    <span className="text-stone-400">Daño:</span> {savedPlayerAttackPower}
                   </p>
                   <p>
                     <span className="text-stone-400">Defensa:</span> {savedPlayer.stats.defensa}

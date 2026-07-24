@@ -1,5 +1,6 @@
 import type { Enemigo } from "@/lib/enemigos";
-import { HERO_XP_TO_NEXT_LEVEL, type PlayerProfile } from "@/lib/player";
+import type { WeaponItem } from "@/lib/items";
+import { applyExperienceGain, applyReputationGain, type PlayerProfile } from "@/lib/player";
 
 export type CombatAction = "attack" | "defend" | "flee";
 
@@ -24,16 +25,29 @@ const clamp = (value: number, min: number, max: number) => Math.min(max, Math.ma
 
 const rollChance = (percent: number) => Math.random() * 100 < clamp(percent, 0, 100);
 
-/**
- * Ataque del heroe:
- * (fuerza + dano base + ataque de arma) * nivel
- * Critico usa probCritico / danoCritico.
- */
+export const getCombatGearFromEquipment = (
+  player: PlayerProfile,
+  weaponItems: Pick<WeaponItem, "name" | "effects">[]
+): CombatGearBonuses => {
+  const main = weaponItems.find((item) => item.name === player.equipment.mano_principal);
+  const off = weaponItems.find((item) => item.name === player.equipment.mano_secundaria);
+
+  return {
+    weaponDano: (main?.effects.dano ?? 0) + (off?.effects.dano ?? 0),
+    weaponDefensa: (main?.effects.defensa ?? 0) + (off?.effects.defensa ?? 0)
+  };
+};
+
+/** Ataque del heroe: (fuerza + dano de arma) * nivel. Critico usa probCritico / danoCritico. */
 export const calcHeroRawDamage = (player: PlayerProfile, weaponDano: number) => {
   const arma = Math.max(0, weaponDano);
-  const base = player.stats.fuerza + player.stats.dano + arma;
+  const base = player.stats.fuerza + arma;
   return Math.max(1, base * Math.max(1, player.nivel));
 };
+
+/** Valor mostrado en la UI como stat "Dano". */
+export const calcHeroAttackPower = (player: PlayerProfile, weaponDano: number) =>
+  calcHeroRawDamage(player, weaponDano);
 
 /** Ataque del enemigo: ataque * nivel (pedido del diseno). */
 export const calcEnemyRawDamage = (enemy: Enemigo) =>
@@ -249,22 +263,17 @@ export const resolveCombatTurn = ({
 };
 
 export const applyVictoryRewards = (player: PlayerProfile, enemy: Enemigo): PlayerProfile => {
-  const experiencia = Math.max(0, player.experiencia + enemy.experiencia);
-  let nivel = player.nivel;
-  let xp = experiencia;
-
-  while (xp >= HERO_XP_TO_NEXT_LEVEL) {
-    xp -= HERO_XP_TO_NEXT_LEVEL;
-    nivel += 1;
-  }
+  const leveled = applyExperienceGain(player.nivel, player.experiencia, enemy.experiencia);
+  const ranked = applyReputationGain(player.reputacionNivel, player.stats.reputacion, enemy.reputacion);
 
   return {
     ...player,
-    nivel,
-    experiencia: xp,
+    nivel: leveled.nivel,
+    experiencia: leveled.experiencia,
+    reputacionNivel: ranked.reputacionNivel,
     stats: {
       ...player.stats,
-      reputacion: Math.max(0, player.stats.reputacion + enemy.reputacion)
+      reputacion: ranked.reputacion
     }
   };
 };

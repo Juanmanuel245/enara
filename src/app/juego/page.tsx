@@ -15,9 +15,11 @@ import {
   Sunset,
   Wind,
   Sparkles,
+  Skull,
   Sword,
   Swords,
   Users,
+  X,
   Zap
 } from "lucide-react";
 import { useRouter } from "next/navigation";
@@ -35,7 +37,9 @@ import {
 } from "@/lib/misiones";
 import {
   applyVictoryRewards,
+  calcHeroAttackPower,
   createCombatState,
+  getCombatGearFromEquipment,
   resolveCombatTurn,
   type CombatAction,
   type CombatState
@@ -50,8 +54,11 @@ import {
   type Enemigo
 } from "@/lib/enemigos";
 import {
+  applyReputationGain,
   getHeroExperienceProgress,
+  getHeroLevelXpTable,
   getReputationProgress,
+  getReputationRankXpTable,
   MAX_ENERGIA,
   GAME_STORAGE_KEY,
   PLAYER_STORAGE_KEY,
@@ -60,6 +67,9 @@ import {
   formatEquipmentSlotLabel,
   parseStoredPlayer
 } from "@/lib/player";
+
+const HERO_LEVEL_XP_TABLE = getHeroLevelXpTable();
+const REPUTATION_RANK_XP_TABLE = getReputationRankXpTable();
 
 type Enemy = {
   id: string;
@@ -226,28 +236,46 @@ const formatMissionEffects = (effects: Partial<Record<keyof HeroStats, number>>)
   return entries.map((key) => {
     const value = effects[key] ?? 0;
     const sign = value > 0 ? "+" : "";
-    return `${sign}${value} ${statLabels[key]}`;
+    const label = key === "dano" ? statLabels.fuerza : statLabels[key];
+    return `${sign}${value} ${label}`;
   });
 };
 
-const applyOptionEffects = (stats: HeroStats, effects: Partial<Record<keyof HeroStats, number>>) => {
-  const next: HeroStats = { ...stats };
+const applyOptionEffects = (
+  player: PlayerProfile,
+  effects: Partial<Record<keyof HeroStats, number>>
+): PlayerProfile => {
+  const next: HeroStats = { ...player.stats };
+  const reputationDelta = effects.reputacion ?? 0;
 
   (Object.keys(effects) as (keyof HeroStats)[]).forEach((key) => {
+    if (key === "reputacion") {
+      return;
+    }
+    if (key === "dano") {
+      next.fuerza += effects[key] ?? 0;
+      return;
+    }
     next[key] = next[key] + (effects[key] ?? 0);
   });
 
+  const ranked = applyReputationGain(player.reputacionNivel, player.stats.reputacion, reputationDelta);
+
   return {
-    fuerza: clamp(next.fuerza, 1, 30),
-    carisma: clamp(next.carisma, 1, 30),
-    agilidad: clamp(next.agilidad, 1, 30),
-    suerte: clamp(next.suerte, 1, 30),
-    reputacion: Math.max(0, next.reputacion),
-    vida: clamp(next.vida, 1, next.vidaMax),
-    vidaMax: next.vidaMax,
-    dano: clamp(next.dano, 0, 30),
-    defensa: clamp(next.defensa, 0, 30)
-  } satisfies HeroStats;
+    ...player,
+    reputacionNivel: ranked.reputacionNivel,
+    stats: {
+      fuerza: clamp(next.fuerza, 1, 30),
+      carisma: clamp(next.carisma, 1, 30),
+      agilidad: clamp(next.agilidad, 1, 30),
+      suerte: clamp(next.suerte, 1, 30),
+      reputacion: ranked.reputacion,
+      vida: clamp(next.vida, 1, next.vidaMax),
+      vidaMax: next.vidaMax,
+      dano: 0,
+      defensa: clamp(next.defensa, 0, 30)
+    } satisfies HeroStats
+  };
 };
 
 const applyRestRecovery = (player: PlayerProfile) => {
@@ -384,9 +412,13 @@ const parseStoredGame = (rawGame: string | null): GameState | null => {
 export default function GamePage() {
   const router = useRouter();
   const combatLogRef = useRef<HTMLUListElement>(null);
+  const currentLevelRowRef = useRef<HTMLTableRowElement>(null);
+  const currentReputationRowRef = useRef<HTMLTableRowElement>(null);
   const [weaponItems, setWeaponItems] = useState<WeaponItem[]>(() => getLocalWeaponItems());
   const [missionItems, setMissionItems] = useState<Mission[]>(() => getLocalMissions());
   const [enemigoItems] = useState<Enemigo[]>(() => getLocalEnemigos());
+  const [levelXpTableOpen, setLevelXpTableOpen] = useState(false);
+  const [reputationRankTableOpen, setReputationRankTableOpen] = useState(false);
   const [game, setGame] = useState<GameState | null>(() => {
     if (typeof window === "undefined") {
       return null;
@@ -454,6 +486,50 @@ export default function GamePage() {
   }, [game?.combat?.log]);
 
   useEffect(() => {
+    if (!levelXpTableOpen) {
+      return;
+    }
+
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setLevelXpTableOpen(false);
+      }
+    };
+
+    window.addEventListener("keydown", onKeyDown);
+    const frame = window.requestAnimationFrame(() => {
+      currentLevelRowRef.current?.scrollIntoView({ block: "center" });
+    });
+
+    return () => {
+      window.removeEventListener("keydown", onKeyDown);
+      window.cancelAnimationFrame(frame);
+    };
+  }, [levelXpTableOpen]);
+
+  useEffect(() => {
+    if (!reputationRankTableOpen) {
+      return;
+    }
+
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setReputationRankTableOpen(false);
+      }
+    };
+
+    window.addEventListener("keydown", onKeyDown);
+    const frame = window.requestAnimationFrame(() => {
+      currentReputationRowRef.current?.scrollIntoView({ block: "center" });
+    });
+
+    return () => {
+      window.removeEventListener("keydown", onKeyDown);
+      window.cancelAnimationFrame(frame);
+    };
+  }, [reputationRankTableOpen]);
+
+  useEffect(() => {
     let active = true;
 
     const loadMissions = async () => {
@@ -487,9 +563,15 @@ export default function GamePage() {
       ]
     : [];
 
+  const combatGear = game ? getCombatGearFromEquipment(game.player, weaponItems) : null;
+
   const heroCombatStats = game
     ? [
-        { label: "Dano", value: game.player.stats.dano, Icon: Sword },
+        {
+          label: "Dano",
+          value: calcHeroAttackPower(game.player, combatGear?.weaponDano ?? 0),
+          Icon: Sword
+        },
         { label: "Defensa", value: game.player.stats.defensa, Icon: Shield }
       ]
     : [];
@@ -538,7 +620,9 @@ export default function GamePage() {
     ? Math.min(100, Math.max(0, (game.player.stats.vida / game.player.stats.vidaMax) * 100))
     : 0;
   const energiaPercent = game ? Math.min(100, Math.max(0, (game.player.energia / MAX_ENERGIA) * 100)) : 0;
-  const reputationProgress = game ? getReputationProgress(game.player.stats.reputacion) : null;
+  const reputationProgress = game
+    ? getReputationProgress(game.player.stats.reputacion, game.player.reputacionNivel)
+    : null;
   const experienceProgress = game
     ? getHeroExperienceProgress(game.player.experiencia, game.player.nivel)
     : null;
@@ -556,6 +640,14 @@ export default function GamePage() {
     { stage: 2, label: "Atardecer", Icon: Sunset },
     { stage: 3, label: "Anochecer", Icon: Moon }
   ];
+  const encounterEnemyVida = game?.pendingEnemy
+    ? game.combat?.enemyVida ?? game.pendingEnemy.vida
+    : 0;
+  const encounterEnemyVidaMax = game?.pendingEnemy
+    ? game.combat?.enemyVidaMax ?? game.pendingEnemy.vida
+    : 1;
+  const isEncounterEnemyDefeated =
+    game?.combat?.status === "won" || encounterEnemyVida <= 0;
 
   const resolveNextPhaseAfterTurn = (gameState: GameState): GameState["phase"] => {
     const nextLifeMissionIndex = gameState.lifeMissionIndex + 1;
@@ -616,8 +708,7 @@ export default function GamePage() {
       return;
     }
 
-    const statsAfterChoice = applyOptionEffects(game.player.stats, option.effects);
-    const updatedPlayer: PlayerProfile = { ...game.player, stats: statsAfterChoice };
+    const updatedPlayer = applyOptionEffects(game.player, option.effects);
 
     persistGame({
       ...game,
@@ -772,17 +863,14 @@ export default function GamePage() {
       return;
     }
 
-    const weaponDano =
-      (equippedMainHandItem?.effects.dano ?? 0) + (equippedOffHandItem?.effects.dano ?? 0);
-    const weaponDefensa =
-      (equippedMainHandItem?.effects.defensa ?? 0) + (equippedOffHandItem?.effects.defensa ?? 0);
+    const gear = getCombatGearFromEquipment(game.player, weaponItems);
 
     const result = resolveCombatTurn({
       action,
       player: game.player,
       enemy: game.pendingEnemy,
       combat: game.combat,
-      gear: { weaponDano, weaponDefensa }
+      gear
     });
 
     const rewardedPlayer =
@@ -937,7 +1025,16 @@ export default function GamePage() {
             {experienceProgress && (
               <div className="mx-auto mt-2 w-full max-w-[14rem]">
                 <p className="text-xs font-medium uppercase tracking-[0.12em] text-amber-300/90">
-                  Nivel {experienceProgress.level}
+                  <button
+                    type="button"
+                    onClick={() => setLevelXpTableOpen(true)}
+                    className="rounded-sm underline decoration-amber-500/50 underline-offset-4 transition-colors hover:text-amber-200 hover:decoration-amber-300 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-amber-400"
+                    aria-haspopup="dialog"
+                    aria-expanded={levelXpTableOpen}
+                  >
+                    Nivel
+                  </button>{" "}
+                  {experienceProgress.level}
                 </p>
                 <div className="mt-1.5 h-2 overflow-hidden rounded-full border border-amber-900/40 bg-stone-950">
                   <div
@@ -946,7 +1043,9 @@ export default function GamePage() {
                   />
                 </div>
                 <p className="mt-1 text-[10px] tabular-nums text-stone-400">
-                  {experienceProgress.currentXp}/{experienceProgress.xpToNextLevel} XP
+                  {experienceProgress.isMaxLevel
+                    ? "Nivel maximo"
+                    : `${experienceProgress.currentXp}/${experienceProgress.xpToNextLevel} XP`}
                 </p>
               </div>
             )}
@@ -1008,14 +1107,25 @@ export default function GamePage() {
                       <span className="flex min-w-0 flex-col items-start gap-0.5 font-medium text-amber-100">
                         <span className="flex items-center gap-1.5">
                           <Sparkles className="h-3.5 w-3.5 shrink-0 text-violet-400" />
-                          Reputacion
+                          <button
+                            type="button"
+                            onClick={() => setReputationRankTableOpen(true)}
+                            className="rounded-sm underline decoration-violet-500/50 underline-offset-4 transition-colors hover:text-amber-50 hover:decoration-violet-300 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-violet-400"
+                            aria-haspopup="dialog"
+                            aria-expanded={reputationRankTableOpen}
+                          >
+                            Reputacion
+                          </button>{" "}
+                          <span className="tabular-nums text-stone-300">{reputationProgress.rank}</span>
                         </span>
-                        <span className="text-[10px] font-normal uppercase tracking-[0.08em] text-amber-300/80">
+                        <span className="text-[10px] font-normal uppercase tracking-[0.08em] text-violet-300/90">
                           {reputationProgress.rankName}
                         </span>
                       </span>
                       <span className="shrink-0 tabular-nums text-stone-300">
-                        {reputationProgress.currentXp}/{reputationProgress.xpToNextRank}
+                        {reputationProgress.isMaxRank
+                          ? "Max"
+                          : `${reputationProgress.currentXp}/${reputationProgress.xpToNextRank}`}
                       </span>
                     </div>
                     <div className="h-2.5 overflow-hidden rounded-full border border-amber-900/40 bg-stone-950">
@@ -1272,7 +1382,9 @@ export default function GamePage() {
                           <img
                             src={resolveEnemigoImagen(game.pendingEnemy.imagen)}
                             alt={game.pendingEnemy.nombre}
-                            className="h-64 w-full object-cover"
+                            className={`h-64 w-full object-cover transition-[filter] ${
+                              isEncounterEnemyDefeated ? "grayscale" : ""
+                            }`}
                           />
                         </>
                       ) : (
@@ -1280,15 +1392,19 @@ export default function GamePage() {
                           Sin imagen
                         </div>
                       )}
-                      <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-stone-950/95 via-stone-950/80 to-transparent px-3 pb-3 pt-8">
+                      {isEncounterEnemyDefeated && (
+                        <div className="absolute inset-0 z-10 flex items-center justify-center bg-stone-950/55">
+                          <Skull className="h-24 w-24 text-stone-200/45" strokeWidth={1.25} />
+                        </div>
+                      )}
+                      <div className="absolute inset-x-0 bottom-0 z-20 bg-gradient-to-t from-stone-950/95 via-stone-950/80 to-transparent px-3 pb-3 pt-8">
                         <div className="mb-1 flex items-center justify-between text-xs text-stone-200">
                           <span className="flex items-center gap-1.5 font-medium text-amber-100">
                             <HeartPulse className="h-3.5 w-3.5 text-red-400" />
                             Vida
                           </span>
                           <span className="tabular-nums text-stone-300">
-                            {game.combat?.enemyVida ?? game.pendingEnemy.vida}/
-                            {game.combat?.enemyVidaMax ?? game.pendingEnemy.vida}
+                            {encounterEnemyVida}/{encounterEnemyVidaMax}
                           </span>
                         </div>
                         <div className="h-2.5 overflow-hidden rounded-full border border-amber-900/40 bg-stone-950/90">
@@ -1297,12 +1413,7 @@ export default function GamePage() {
                             style={{
                               width: `${Math.min(
                                 100,
-                                Math.max(
-                                  0,
-                                  ((game.combat?.enemyVida ?? game.pendingEnemy.vida) /
-                                    (game.combat?.enemyVidaMax ?? game.pendingEnemy.vida)) *
-                                    100
-                                )
+                                Math.max(0, (encounterEnemyVida / encounterEnemyVidaMax) * 100)
                               )}%`
                             }}
                           />
@@ -1499,8 +1610,14 @@ export default function GamePage() {
                     Completaste {game.turnIndex - 1} turnos de aventura y cerraste la campania.
                   </p>
                   <p className="text-stone-200">
-                    Reputacion final:{" "}
-                    <span className="font-semibold text-amber-200">{game.player.stats.reputacion}</span>
+                    Reconocimiento:{" "}
+                    <span className="font-semibold text-amber-200">
+                      {reputationProgress?.rankName ?? "Desconocido"}
+                    </span>
+                    <span className="text-stone-400">
+                      {" "}
+                      (rango {game.player.reputacionNivel})
+                    </span>
                   </p>
                   <div className="grid gap-2 md:grid-cols-2">
                     <Button onClick={handleResetCampaign} variant="secondary">
@@ -1644,6 +1761,160 @@ export default function GamePage() {
           </Card>
         </aside>
       </div>
+
+      {levelXpTableOpen && experienceProgress && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-stone-950/70 p-4 backdrop-blur-sm"
+          onClick={() => setLevelXpTableOpen(false)}
+          role="presentation"
+        >
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="level-xp-table-title"
+            className="flex max-h-[min(36rem,85vh)] w-full max-w-md flex-col overflow-hidden rounded-xl border border-amber-800/50 bg-stone-950 shadow-2xl shadow-black/50"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="flex items-start justify-between gap-3 border-b border-amber-800/35 px-4 py-3">
+              <div>
+                <h2
+                  id="level-xp-table-title"
+                  className="font-[var(--font-cinzel)] text-lg text-amber-100"
+                >
+                  Experiencia por nivel
+                </h2>
+                <p className="mt-0.5 text-xs text-stone-400">
+                  Cada nivel cuesta un 15% mas que el anterior. Tu nivel actual:{" "}
+                  {experienceProgress.level}.
+                </p>
+              </div>
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                className="h-8 w-8 shrink-0 p-0 text-stone-400 hover:bg-stone-900 hover:text-amber-100"
+                onClick={() => setLevelXpTableOpen(false)}
+                aria-label="Cerrar"
+              >
+                <X className="h-4 w-4" />
+              </Button>
+            </div>
+
+            <div className="min-h-0 flex-1 overflow-y-auto px-2 py-2">
+              <table className="w-full text-left text-sm">
+                <thead className="sticky top-0 bg-stone-950 text-[10px] uppercase tracking-[0.14em] text-amber-300/80">
+                  <tr>
+                    <th className="px-3 py-2 font-medium">Nivel</th>
+                    <th className="px-3 py-2 font-medium">Siguiente</th>
+                    <th className="px-3 py-2 text-right font-medium">XP necesaria</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {HERO_LEVEL_XP_TABLE.map((entry) => {
+                    const isCurrent = entry.level === experienceProgress.level;
+
+                    return (
+                      <tr
+                        key={entry.level}
+                        ref={isCurrent ? currentLevelRowRef : undefined}
+                        className={
+                          isCurrent
+                            ? "bg-amber-900/35 text-amber-100"
+                            : "text-stone-300 odd:bg-stone-900/40"
+                        }
+                      >
+                        <td className="px-3 py-1.5 tabular-nums">{entry.level}</td>
+                        <td className="px-3 py-1.5 tabular-nums">{entry.nextLevel}</td>
+                        <td className="px-3 py-1.5 text-right tabular-nums">
+                          {entry.xpToNext.toLocaleString("es-ES")}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {reputationRankTableOpen && reputationProgress && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-stone-950/70 p-4 backdrop-blur-sm"
+          onClick={() => setReputationRankTableOpen(false)}
+          role="presentation"
+        >
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="reputation-rank-table-title"
+            className="flex max-h-[min(36rem,85vh)] w-full max-w-lg flex-col overflow-hidden rounded-xl border border-violet-800/50 bg-stone-950 shadow-2xl shadow-black/50"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="flex items-start justify-between gap-3 border-b border-violet-800/35 px-4 py-3">
+              <div>
+                <h2
+                  id="reputation-rank-table-title"
+                  className="font-[var(--font-cinzel)] text-lg text-violet-100"
+                >
+                  Reconocimientos
+                </h2>
+                <p className="mt-0.5 text-xs text-stone-400">
+                  Cada rango cuesta un 25% mas que el anterior. Tu status actual:{" "}
+                  <span className="text-violet-300">{reputationProgress.rankName}</span>.
+                </p>
+              </div>
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                className="h-8 w-8 shrink-0 p-0 text-stone-400 hover:bg-stone-900 hover:text-violet-100"
+                onClick={() => setReputationRankTableOpen(false)}
+                aria-label="Cerrar"
+              >
+                <X className="h-4 w-4" />
+              </Button>
+            </div>
+
+            <div className="min-h-0 flex-1 overflow-y-auto px-2 py-2">
+              <table className="w-full text-left text-sm">
+                <thead className="sticky top-0 bg-stone-950 text-[10px] uppercase tracking-[0.14em] text-violet-300/80">
+                  <tr>
+                    <th className="px-3 py-2 font-medium">Rango</th>
+                    <th className="px-3 py-2 font-medium">Reconocimiento</th>
+                    <th className="px-3 py-2 font-medium">Siguiente</th>
+                    <th className="px-3 py-2 text-right font-medium">Rep. necesaria</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {REPUTATION_RANK_XP_TABLE.map((entry) => {
+                    const isCurrent = entry.rank === reputationProgress.rank;
+
+                    return (
+                      <tr
+                        key={entry.rank}
+                        ref={isCurrent ? currentReputationRowRef : undefined}
+                        className={
+                          isCurrent
+                            ? "bg-violet-900/35 text-violet-100"
+                            : "text-stone-300 odd:bg-stone-900/40"
+                        }
+                      >
+                        <td className="px-3 py-1.5 tabular-nums">{entry.rank}</td>
+                        <td className="px-3 py-1.5">{entry.rankName}</td>
+                        <td className="px-3 py-1.5">{entry.nextRankName}</td>
+                        <td className="px-3 py-1.5 text-right tabular-nums">
+                          {entry.xpToNext.toLocaleString("es-ES")}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      )}
     </main>
   );
 }
