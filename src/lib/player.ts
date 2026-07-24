@@ -2,6 +2,9 @@ export const PLAYER_STORAGE_KEY = "futrol.player";
 export const GAME_STORAGE_KEY = "futrol.game";
 
 export const DEFAULT_HERO_AGE = 16;
+/** Turnos maximos de campania (1 turno = 1 ano; inicia a los 16, retiro a los 100). */
+export const MAX_CAMPAIGN_TURNS = 84;
+export const RETIREMENT_AGE = DEFAULT_HERO_AGE + MAX_CAMPAIGN_TURNS;
 export const DEFAULT_HERO_VIDA = 100;
 export const MAX_HERO_VIDA = 180;
 export const DEFAULT_ENERGIA = 100;
@@ -769,7 +772,9 @@ export const parseStoredPlayer = (rawPlayer: string | null): PlayerProfile | nul
       name: player.name.trim(),
       createdAt: typeof player.createdAt === "string" ? player.createdAt : new Date().toISOString(),
       stats,
-      age: isFiniteNumber(player.age) ? clamp(Math.round(player.age), DEFAULT_HERO_AGE, 99) : DEFAULT_HERO_AGE,
+      age: isFiniteNumber(player.age)
+        ? clamp(Math.round(player.age), DEFAULT_HERO_AGE, RETIREMENT_AGE)
+        : DEFAULT_HERO_AGE,
       coins: isFiniteNumber(player.coins) ? Math.max(0, Math.round(player.coins)) : 0,
       energia: isFiniteNumber(player.energia)
         ? clamp(Math.round(player.energia), 0, MAX_ENERGIA)

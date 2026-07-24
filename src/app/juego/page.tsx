@@ -9,6 +9,8 @@ import {
   Moon,
   Crosshair,
   Flame,
+  MessageCircle,
+  Send,
   Shield,
   ShieldHalf,
   Sun,
@@ -18,6 +20,7 @@ import {
   Skull,
   Sword,
   Swords,
+  Trophy,
   Users,
   X,
   Zap
@@ -26,6 +29,20 @@ import { useRouter } from "next/navigation";
 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  calculateFinalScore,
+  createInitialCampaignStats,
+  getRetirementMessage,
+  normalizeCampaignStats,
+  submitPuntaje,
+  type CampaignStats,
+  type RetirementReason
+} from "@/lib/campaign";
+import {
+  buildPersonalScoreShareText,
+  shareViaTelegram,
+  shareViaWhatsApp
+} from "@/lib/share";
 import {
   fetchItems,
   findItemById,
@@ -75,6 +92,9 @@ import {
   getReputationRankXpTable,
   migrateLegacyEquipmentIds,
   MAX_ENERGIA,
+  MAX_CAMPAIGN_TURNS,
+  RETIREMENT_AGE,
+  DEFAULT_HERO_AGE,
   GAME_STORAGE_KEY,
   PLAYER_STORAGE_KEY,
   sellItemFromInventoryAt,
@@ -162,6 +182,10 @@ type GameState = {
   pendingEncounterChoice: DayStage3EncounterChoice | null;
   combat: CombatState | null;
   shopOffers: string[];
+  campaignStats: CampaignStats;
+  retirementReason: RetirementReason | null;
+  finalScore: number | null;
+  puntajeSubmitted: boolean;
 };
 
 const normalizeCombatState = (raw: unknown, enemy: Enemigo | null): CombatState | null => {
@@ -478,7 +502,19 @@ const parseStoredGame = (rawGame: string | null): GameState | null => {
         normalizedPhase === "enemyEncounter"
           ? normalizeCombatState(parsed.combat, pendingEnemy)
           : null,
-      shopOffers: normalizedPhase === "shop" ? shopOffers : []
+      shopOffers: normalizedPhase === "shop" ? shopOffers : [],
+      campaignStats: normalizeCampaignStats(parsed.campaignStats, normalizedPlayer.coins),
+      retirementReason:
+        parsed.retirementReason === "age" ||
+        parsed.retirementReason === "death" ||
+        parsed.retirementReason === "missions"
+          ? parsed.retirementReason
+          : null,
+      finalScore:
+        typeof parsed.finalScore === "number" && Number.isFinite(parsed.finalScore)
+          ? Math.round(parsed.finalScore)
+          : null,
+      puntajeSubmitted: parsed.puntajeSubmitted === true
     } satisfies GameState;
   } catch {
     return null;
@@ -488,6 +524,7 @@ const parseStoredGame = (rawGame: string | null): GameState | null => {
 export default function GamePage() {
   const router = useRouter();
   const combatLogRef = useRef<HTMLUListElement>(null);
+  const puntajeSubmitStartedRef = useRef(false);
   const currentLevelRowRef = useRef<HTMLTableRowElement>(null);
   const currentReputationRowRef = useRef<HTMLTableRowElement>(null);
   const [itemCatalog, setItemCatalog] = useState<GameItem[]>(() => getLocalItems());
@@ -495,6 +532,7 @@ export default function GamePage() {
   const [enemigoItems] = useState<Enemigo[]>(() => getLocalEnemigos());
   const [levelXpTableOpen, setLevelXpTableOpen] = useState(false);
   const [reputationRankTableOpen, setReputationRankTableOpen] = useState(false);
+  const [puntajeSubmitError, setPuntajeSubmitError] = useState<string | null>(null);
   const [game, setGame] = useState<GameState | null>(() => {
     if (typeof window === "undefined") {
       return null;
@@ -526,7 +564,11 @@ export default function GamePage() {
       pendingEnemy: null,
       pendingEncounterChoice: null,
       combat: null,
-      shopOffers: []
+      shopOffers: [],
+      campaignStats: createInitialCampaignStats(loadedPlayer.coins),
+      retirementReason: null,
+      finalScore: null,
+      puntajeSubmitted: false
     } satisfies GameState;
   });
 
@@ -570,6 +612,61 @@ export default function GamePage() {
       active = false;
     };
   }, []);
+
+  useEffect(() => {
+    if (!game || game.phase !== "finished" || game.puntajeSubmitted || game.finalScore === null) {
+      return;
+    }
+
+    if (puntajeSubmitStartedRef.current) {
+      return;
+    }
+
+    puntajeSubmitStartedRef.current = true;
+    let cancelled = false;
+
+    const savePuntaje = async () => {
+      try {
+        await submitPuntaje({
+          heroe: game.player.name,
+          oro: game.campaignStats.goldEarned,
+          danio_maximo: game.campaignStats.maxDamageDealt,
+          reputacion: game.player.reputacionNivel,
+          puntaje: game.finalScore ?? 0
+        });
+
+        if (cancelled) {
+          return;
+        }
+
+        setPuntajeSubmitError(null);
+        setGame((current) => {
+          if (!current || current.phase !== "finished" || current.puntajeSubmitted) {
+            return current;
+          }
+
+          const nextGame = { ...current, puntajeSubmitted: true };
+          window.localStorage.setItem(GAME_STORAGE_KEY, JSON.stringify(nextGame));
+          return nextGame;
+        });
+      } catch (error) {
+        if (cancelled) {
+          return;
+        }
+
+        puntajeSubmitStartedRef.current = false;
+        const message =
+          error instanceof Error ? error.message : "No se pudo guardar el puntaje en la tabla.";
+        setPuntajeSubmitError(message);
+      }
+    };
+
+    void savePuntaje();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [game?.phase, game?.puntajeSubmitted, game?.finalScore, game?.player.name, game?.campaignStats, game?.player.reputacionNivel]);
 
   useEffect(() => {
     const logEl = combatLogRef.current;
@@ -747,10 +844,24 @@ export default function GamePage() {
   const isEncounterEnemyDefeated =
     game?.combat?.status === "won" || encounterEnemyVida <= 0;
 
-  const resolveNextPhaseAfterTurn = (gameState: GameState): GameState["phase"] => {
-    const nextLifeMissionIndex = gameState.lifeMissionIndex + 1;
-    const shouldFinish = nextLifeMissionIndex >= eligibleLifeMissions.length;
-    return shouldFinish ? "finished" : "lifeMission";
+  const finishGame = (gameState: GameState, reason: RetirementReason) => {
+    const turnsPlayed = Math.max(0, gameState.turnIndex - 1);
+    const finalScore = calculateFinalScore(gameState.player, gameState.campaignStats, turnsPlayed);
+
+    persistGame({
+      ...gameState,
+      phase: "finished",
+      retirementReason: reason,
+      finalScore,
+      lastBattle: null,
+      lastMissionChoice: null,
+      lastStageMessage: null,
+      pendingDrop: null,
+      pendingEnemy: null,
+      pendingEncounterChoice: null,
+      combat: null,
+      shopOffers: []
+    });
   };
 
   const handleSkipMissingMission = () => {
@@ -777,8 +888,11 @@ export default function GamePage() {
 
     const agedPlayer: PlayerProfile = {
       ...updatedPlayer,
-      age: Math.min(99, updatedPlayer.age + 1)
+      age: Math.min(RETIREMENT_AGE, updatedPlayer.age + 1)
     };
+
+    const nextTurnIndex = game.turnIndex + 1;
+    const nextLifeMissionIndex = game.lifeMissionIndex + 1;
 
     const intermediateGame = {
       ...game,
@@ -791,14 +905,24 @@ export default function GamePage() {
       pendingEncounterChoice: null,
       combat: null,
       shopOffers: [],
-      turnIndex: game.turnIndex + 1,
-      lifeMissionIndex: game.lifeMissionIndex + 1,
+      turnIndex: nextTurnIndex,
+      lifeMissionIndex: nextLifeMissionIndex,
       situationMissionIndex: game.situationMissionIndex + 1
     } satisfies GameState;
 
+    if (nextTurnIndex > MAX_CAMPAIGN_TURNS || agedPlayer.age >= RETIREMENT_AGE) {
+      finishGame(intermediateGame, "age");
+      return;
+    }
+
+    if (nextLifeMissionIndex >= eligibleLifeMissions.length) {
+      finishGame(intermediateGame, "missions");
+      return;
+    }
+
     persistGame({
       ...intermediateGame,
-      phase: resolveNextPhaseAfterTurn(game)
+      phase: "lifeMission"
     });
   };
 
@@ -1028,9 +1152,23 @@ export default function GamePage() {
 
     let nextCombat = result.combat;
     let pendingDrop = game.pendingDrop;
+    let nextCampaignStats = game.campaignStats;
+
+    const previousHeroDamage = game.combat.heroDamageDone;
+    const hitDamage = result.combat.heroDamageDone - previousHeroDamage;
+    if (hitDamage > nextCampaignStats.maxDamageDealt) {
+      nextCampaignStats = {
+        ...nextCampaignStats,
+        maxDamageDealt: hitDamage
+      };
+    }
 
     if (result.combat.status === "won") {
       nextPlayer = applyVictoryRewards(nextPlayer, game.pendingEnemy);
+      nextCampaignStats = {
+        ...nextCampaignStats,
+        enemiesKilled: nextCampaignStats.enemiesKilled + 1
+      };
       const droppedItem = rollDroppedItem(itemCatalog, game.pendingEnemy);
 
       if (droppedItem) {
@@ -1059,7 +1197,8 @@ export default function GamePage() {
       ...game,
       player: nextPlayer,
       pendingDrop,
-      combat: nextCombat
+      combat: nextCombat,
+      campaignStats: nextCampaignStats
     });
   };
 
@@ -1170,12 +1309,21 @@ export default function GamePage() {
 
     persistGame({
       ...game,
-      player: result.player
+      player: result.player,
+      campaignStats: {
+        ...game.campaignStats,
+        goldEarned: game.campaignStats.goldEarned + sellPrice
+      }
     });
   };
 
   const handleFinishEnemyEncounter = () => {
     if (!game?.combat || game.combat.status === "active") {
+      return;
+    }
+
+    if (game.combat.status === "lost") {
+      finishGame(game, "death");
       return;
     }
 
@@ -1221,6 +1369,9 @@ export default function GamePage() {
       return;
     }
 
+    setPuntajeSubmitError(null);
+    puntajeSubmitStartedRef.current = false;
+
     persistGame({
       ...game,
       turnIndex: 1,
@@ -1235,7 +1386,15 @@ export default function GamePage() {
       pendingEnemy: null,
       pendingEncounterChoice: null,
       combat: null,
-      shopOffers: []
+      shopOffers: [],
+      campaignStats: createInitialCampaignStats(game.player.coins),
+      retirementReason: null,
+      finalScore: null,
+      puntajeSubmitted: false,
+      player: {
+        ...game.player,
+        age: DEFAULT_HERO_AGE
+      }
     });
   };
 
@@ -1425,7 +1584,16 @@ export default function GamePage() {
             <Button
               type="button"
               variant="secondary"
-              className="mt-4 w-full border border-red-900/45 bg-red-950/25 text-red-100 hover:bg-red-950/45"
+              className="mt-4 w-full"
+              onClick={() => router.push("/puntajes")}
+            >
+              <Trophy className="mr-2 h-4 w-4" />
+              Tabla de puntajes
+            </Button>
+            <Button
+              type="button"
+              variant="secondary"
+              className="mt-2 w-full border border-red-900/45 bg-red-950/25 text-red-100 hover:bg-red-950/45"
               onClick={handleResetPartida}
             >
               Reiniciar partida
@@ -1830,7 +1998,7 @@ export default function GamePage() {
                       {game.combat?.status === "won"
                         ? `Victoria. Ganaste ${game.pendingEnemy.experiencia} XP y +${game.pendingEnemy.reputacion} reputacion.`
                         : game.combat?.status === "lost"
-                          ? "Fuiste derrotado. Sobrevivis con 1 de vida."
+                          ? "Has muerto en batalla. Tu aventura termina aqui."
                           : game.combat?.status === "fled"
                             ? "Lograste escapar del combate."
                             : "Te cruzaste con un enemigo. Elige tu accion cada turno."}
@@ -2085,20 +2253,102 @@ export default function GamePage() {
               {game.phase === "finished" && (
                 <div className="space-y-4 rounded-lg border border-amber-700/25 bg-stone-900/60 p-5 text-center">
                   <Swords className="mx-auto h-10 w-10 text-amber-300" />
-                  <h3 className="font-[var(--font-cinzel)] text-3xl text-amber-100">Tu leyenda ha sido forjada</h3>
-                  <p className="text-stone-300">
-                    Completaste {game.turnIndex - 1} turnos de aventura y cerraste la campania.
+                  <h3 className="font-[var(--font-cinzel)] text-3xl text-amber-100">Fin de la partida</h3>
+                  {game.retirementReason && (
+                    <p className="text-stone-300">{getRetirementMessage(game.retirementReason)}</p>
+                  )}
+                  <p className="text-sm text-stone-400">
+                    Jugaste {Math.max(0, game.turnIndex - 1)} turnos · Edad final: {game.player.age} años
                   </p>
-                  <p className="text-stone-200">
-                    Reconocimiento:{" "}
-                    <span className="font-semibold text-amber-200">
-                      {reputationProgress?.rankName ?? "Desconocido"}
-                    </span>
-                    <span className="text-stone-400">
-                      {" "}
-                      (rango {game.player.reputacionNivel})
-                    </span>
-                  </p>
+
+                  <div className="mx-auto grid max-w-md gap-3 text-left text-sm">
+                    <div className="flex items-center justify-between rounded-md border border-amber-700/20 bg-stone-950/50 px-4 py-2">
+                      <span className="text-stone-400">Enemigos derrotados</span>
+                      <span className="font-semibold text-amber-100">{game.campaignStats.enemiesKilled}</span>
+                    </div>
+                    <div className="flex items-center justify-between rounded-md border border-amber-700/20 bg-stone-950/50 px-4 py-2">
+                      <span className="text-stone-400">Oro acumulado</span>
+                      <span className="font-semibold text-amber-100">{game.campaignStats.goldEarned}</span>
+                    </div>
+                    <div className="flex items-center justify-between rounded-md border border-amber-700/20 bg-stone-950/50 px-4 py-2">
+                      <span className="text-stone-400">Daño maximo en un golpe</span>
+                      <span className="font-semibold text-amber-100">{game.campaignStats.maxDamageDealt}</span>
+                    </div>
+                    <div className="flex items-center justify-between rounded-md border border-amber-700/20 bg-stone-950/50 px-4 py-2">
+                      <span className="text-stone-400">Reputacion alcanzada</span>
+                      <span className="font-semibold text-amber-100">
+                        {reputationProgress?.rankName ?? "Desconocido"} (rango {game.player.reputacionNivel})
+                      </span>
+                    </div>
+                  </div>
+
+                  <div className="rounded-lg border border-amber-500/35 bg-amber-950/25 px-4 py-3">
+                    <p className="text-xs uppercase tracking-[0.2em] text-amber-300/80">Puntaje final</p>
+                    <p className="font-[var(--font-cinzel)] text-4xl text-amber-100">{game.finalScore ?? 0}</p>
+                  </div>
+
+                  {game.puntajeSubmitted ? (
+                    <p className="text-sm text-emerald-400">Puntaje guardado en la tabla de clasificacion.</p>
+                  ) : puntajeSubmitError ? (
+                    <p className="text-sm text-red-400">{puntajeSubmitError}</p>
+                  ) : (
+                    <p className="text-sm text-stone-400">Guardando puntaje...</p>
+                  )}
+
+                  <div className="grid gap-2 sm:grid-cols-2">
+                    <Button
+                      type="button"
+                      onClick={() => {
+                        if (game.finalScore === null) {
+                          return;
+                        }
+                        shareViaWhatsApp(
+                          buildPersonalScoreShareText({
+                            heroName: game.player.name,
+                            finalScore: game.finalScore,
+                            enemiesKilled: game.campaignStats.enemiesKilled,
+                            goldEarned: game.campaignStats.goldEarned,
+                            maxDamageDealt: game.campaignStats.maxDamageDealt,
+                            reputationRank: game.player.reputacionNivel,
+                            reputationRankName: reputationProgress?.rankName ?? "Desconocido"
+                          })
+                        );
+                      }}
+                      className="bg-emerald-700 hover:bg-emerald-600"
+                    >
+                      <MessageCircle className="mr-2 h-4 w-4" />
+                      Compartir por WhatsApp
+                    </Button>
+                    <Button
+                      type="button"
+                      onClick={() => {
+                        if (game.finalScore === null) {
+                          return;
+                        }
+                        shareViaTelegram(
+                          buildPersonalScoreShareText({
+                            heroName: game.player.name,
+                            finalScore: game.finalScore,
+                            enemiesKilled: game.campaignStats.enemiesKilled,
+                            goldEarned: game.campaignStats.goldEarned,
+                            maxDamageDealt: game.campaignStats.maxDamageDealt,
+                            reputationRank: game.player.reputacionNivel,
+                            reputationRankName: reputationProgress?.rankName ?? "Desconocido"
+                          })
+                        );
+                      }}
+                      className="bg-sky-700 hover:bg-sky-600"
+                    >
+                      <Send className="mr-2 h-4 w-4" />
+                      Compartir por Telegram
+                    </Button>
+                  </div>
+
+                  <Button type="button" variant="secondary" className="w-full" onClick={() => router.push("/puntajes")}>
+                    <Trophy className="mr-2 h-4 w-4" />
+                    Ver tabla de puntajes
+                  </Button>
+
                   <div className="grid gap-2 md:grid-cols-2">
                     <Button onClick={handleResetCampaign} variant="secondary">
                       Jugar campania otra vez

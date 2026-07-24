@@ -277,13 +277,6 @@ export const resolveCombatTurn = ({
 
   if (enemyStrike.defeated) {
     turnLog.push(`Fuiste derrotado por ${enemy.nombre}.`);
-    nextPlayer = {
-      ...nextPlayer,
-      stats: {
-        ...nextPlayer.stats,
-        vida: 1
-      }
-    };
     nextCombat = {
       ...nextCombat,
       status: "lost",

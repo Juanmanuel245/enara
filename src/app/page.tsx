@@ -1,7 +1,7 @@
 "use client";
 
 import { FormEvent, useEffect, useMemo, useState } from "react";
-import { Crown, Shield } from "lucide-react";
+import { Crown, Shield, Trophy } from "lucide-react";
 import { useRouter } from "next/navigation";
 
 import { Button } from "@/components/ui/button";
@@ -169,6 +169,10 @@ export default function Home() {
             Sos una persona comun que busca convertirse en leyenda. Tu historia se definira por tarjetas
             de decision que cambiaran tus stats y habilidades.
           </CardDescription>
+          <Button type="button" variant="secondary" onClick={() => router.push("/puntajes")}>
+            <Trophy className="mr-2 h-4 w-4" />
+            Ver tabla de puntajes
+          </Button>
         </CardHeader>
 
         <CardContent className="space-y-6">
