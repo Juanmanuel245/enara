@@ -50,6 +50,10 @@ export const DROP_POOL_SIZE = 100;
 export const DROP_EMPTY_PERCENT = 10;
 /** Drop maximo permitido por item (0-100). */
 export const DROP_RATE_MAX_PERCENT = 50;
+/** Niveles por debajo del enemigo incluidos en el pool de drop. */
+export const DROP_LEVEL_MIN_OFFSET = 2;
+/** Niveles por encima del enemigo incluidos en el pool de drop. */
+export const DROP_LEVEL_MAX_OFFSET = 1;
 
 const allowedEffectKeys: (keyof HeroStats)[] = [
   "fuerza",
@@ -256,11 +260,23 @@ export const warmupItemCatalog = async (): Promise<void> => {
 /** @deprecated Usar warmupItemCatalog */
 export const warmupWeaponCatalog = warmupItemCatalog;
 
+export const getDropEligibleItems = (
+  items: GameItem[],
+  enemy: { nivel: number }
+): GameItem[] => {
+  const minLevel = Math.max(1, enemy.nivel - DROP_LEVEL_MIN_OFFSET);
+  const maxLevel = enemy.nivel + DROP_LEVEL_MAX_OFFSET;
+
+  return items.filter(
+    (item) => item.isDropping && item.nivel >= minLevel && item.nivel <= maxLevel
+  );
+};
+
 export const buildDropPool = (
   items: GameItem[],
   enemy: { nivel: number; drop_bonus: number }
 ): (GameItem | null)[] => {
-  const eligible = items.filter((item) => item.isDropping && item.nivel <= enemy.nivel);
+  const eligible = getDropEligibleItems(items, enemy);
   if (eligible.length === 0) {
     return Array.from({ length: DROP_POOL_SIZE }, () => null);
   }
