@@ -1,13 +1,12 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Coins,
   Clover,
   Footprints,
   HeartPulse,
   Moon,
-  ScrollText,
   Crosshair,
   Flame,
   Shield,
@@ -34,6 +33,13 @@ import {
   type Mission,
   type MissionOption
 } from "@/lib/misiones";
+import {
+  applyVictoryRewards,
+  createCombatState,
+  resolveCombatTurn,
+  type CombatAction,
+  type CombatState
+} from "@/lib/combat";
 import {
   getEncounterChoiceLabel,
   getLocalEnemigos,
@@ -117,10 +123,84 @@ type GameState = {
   pendingDrop: WeaponItem | null;
   pendingEnemy: Enemigo | null;
   pendingEncounterChoice: DayStage3EncounterChoice | null;
+  combat: CombatState | null;
+};
+
+const normalizeCombatState = (raw: unknown, enemy: Enemigo | null): CombatState | null => {
+  if (!enemy) {
+    return null;
+  }
+
+  if (!raw || typeof raw !== "object") {
+    return createCombatState(enemy);
+  }
+
+  const parsed = raw as Partial<CombatState>;
+  const enemyVidaMax =
+    typeof parsed.enemyVidaMax === "number" && Number.isFinite(parsed.enemyVidaMax)
+      ? Math.max(1, Math.round(parsed.enemyVidaMax))
+      : enemy.vida;
+  const enemyVida =
+    typeof parsed.enemyVida === "number" && Number.isFinite(parsed.enemyVida)
+      ? clamp(Math.round(parsed.enemyVida), 0, enemyVidaMax)
+      : enemy.vida;
+  const status =
+    parsed.status === "active" ||
+    parsed.status === "won" ||
+    parsed.status === "lost" ||
+    parsed.status === "fled"
+      ? parsed.status
+      : "active";
+
+  return {
+    enemyVida,
+    enemyVidaMax,
+    log: Array.isArray(parsed.log)
+      ? parsed.log.filter((line): line is string => typeof line === "string").slice(-12)
+      : createCombatState(enemy).log,
+    status,
+    rounds: typeof parsed.rounds === "number" ? Math.max(0, Math.round(parsed.rounds)) : 0,
+    heroDamageDone:
+      typeof parsed.heroDamageDone === "number" ? Math.max(0, Math.round(parsed.heroDamageDone)) : 0,
+    enemyDamageDone:
+      typeof parsed.enemyDamageDone === "number" ? Math.max(0, Math.round(parsed.enemyDamageDone)) : 0
+  };
 };
 
 const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value));
 const randomBetween = (min: number, max: number) => Math.floor(Math.random() * (max - min + 1)) + min;
+
+const getCombatLogClassName = (line: string): string => {
+  const lower = line.toLowerCase();
+
+  if (lower.includes("derrotaste") || lower.includes("escapas del combate")) {
+    return "text-emerald-400";
+  }
+  if (lower.includes("fuiste derrotado") || lower.includes("recibis") || lower.includes("te hace")) {
+    return "text-red-400";
+  }
+  if (lower.includes("golpe critico") || lower.includes("infligis") || lower.includes("atacas e")) {
+    return "text-lime-300";
+  }
+  if (lower.includes("esquivas") || lower.includes("bloqueas parte del golpe")) {
+    return "text-cyan-300";
+  }
+  if (
+    lower.includes("esquivo") ||
+    lower.includes("bloqueo parte") ||
+    lower.includes("fallaste la huida")
+  ) {
+    return "text-amber-400";
+  }
+  if (lower.includes("te pones en guardia")) {
+    return "text-blue-300";
+  }
+  if (lower.includes("aparece")) {
+    return "text-amber-200";
+  }
+
+  return "text-stone-200";
+};
 
 const statLabels: Record<keyof HeroStats, string> = {
   fuerza: "Fuerza",
@@ -276,6 +356,8 @@ const parseStoredGame = (rawGame: string | null): GameState | null => {
         ? parsedEncounterChoice
         : null;
 
+    const pendingEnemy = normalizeEnemigo(parsed.pendingEnemy);
+
     return {
       turnIndex: parsed.turnIndex,
       lifeMissionIndex: parsed.lifeMissionIndex,
@@ -287,8 +369,12 @@ const parseStoredGame = (rawGame: string | null): GameState | null => {
       lastMissionChoice: parsed.lastMissionChoice ?? null,
       lastStageMessage: normalizedStageMessage,
       pendingDrop: normalizeWeaponItem(parsed.pendingDrop),
-      pendingEnemy: normalizeEnemigo(parsed.pendingEnemy),
-      pendingEncounterChoice: normalizedEncounterChoice
+      pendingEnemy,
+      pendingEncounterChoice: normalizedEncounterChoice,
+      combat:
+        normalizedPhase === "enemyEncounter"
+          ? normalizeCombatState(parsed.combat, pendingEnemy)
+          : null
     } satisfies GameState;
   } catch {
     return null;
@@ -297,6 +383,7 @@ const parseStoredGame = (rawGame: string | null): GameState | null => {
 
 export default function GamePage() {
   const router = useRouter();
+  const combatLogRef = useRef<HTMLUListElement>(null);
   const [weaponItems, setWeaponItems] = useState<WeaponItem[]>(() => getLocalWeaponItems());
   const [missionItems, setMissionItems] = useState<Mission[]>(() => getLocalMissions());
   const [enemigoItems] = useState<Enemigo[]>(() => getLocalEnemigos());
@@ -329,7 +416,8 @@ export default function GamePage() {
       lastStageMessage: null,
       pendingDrop: null,
       pendingEnemy: null,
-      pendingEncounterChoice: null
+      pendingEncounterChoice: null,
+      combat: null
     } satisfies GameState;
   });
 
@@ -357,6 +445,13 @@ export default function GamePage() {
       active = false;
     };
   }, []);
+
+  useEffect(() => {
+    const logEl = combatLogRef.current;
+    if (logEl) {
+      logEl.scrollTop = logEl.scrollHeight;
+    }
+  }, [game?.combat?.log]);
 
   useEffect(() => {
     let active = true;
@@ -504,6 +599,7 @@ export default function GamePage() {
       pendingDrop: null,
       pendingEnemy: null,
       pendingEncounterChoice: null,
+      combat: null,
       turnIndex: game.turnIndex + 1,
       lifeMissionIndex: game.lifeMissionIndex + 1,
       situationMissionIndex: game.situationMissionIndex + 1
@@ -632,7 +728,8 @@ export default function GamePage() {
         },
         pendingDrop: null,
         pendingEnemy: null,
-        pendingEncounterChoice: null
+        pendingEncounterChoice: null,
+        combat: null
       });
       return;
     }
@@ -651,7 +748,8 @@ export default function GamePage() {
         },
         pendingDrop: null,
         pendingEnemy: null,
-        pendingEncounterChoice: null
+        pendingEncounterChoice: null,
+        combat: null
       });
       return;
     }
@@ -664,12 +762,43 @@ export default function GamePage() {
       lastStageMessage: null,
       pendingDrop: null,
       pendingEnemy: selectedEnemy,
-      pendingEncounterChoice: choice
+      pendingEncounterChoice: choice,
+      combat: createCombatState(selectedEnemy)
     });
   };
 
-  const handleContinueEnemyEncounter = () => {
-    if (!game) {
+  const handleCombatAction = (action: CombatAction) => {
+    if (!game?.pendingEnemy || !game.combat || game.combat.status !== "active") {
+      return;
+    }
+
+    const weaponDano =
+      (equippedMainHandItem?.effects.dano ?? 0) + (equippedOffHandItem?.effects.dano ?? 0);
+    const weaponDefensa =
+      (equippedMainHandItem?.effects.defensa ?? 0) + (equippedOffHandItem?.effects.defensa ?? 0);
+
+    const result = resolveCombatTurn({
+      action,
+      player: game.player,
+      enemy: game.pendingEnemy,
+      combat: game.combat,
+      gear: { weaponDano, weaponDefensa }
+    });
+
+    const rewardedPlayer =
+      result.combat.status === "won"
+        ? applyVictoryRewards(result.player, game.pendingEnemy)
+        : result.player;
+
+    persistGame({
+      ...game,
+      player: rewardedPlayer,
+      combat: result.combat
+    });
+  };
+
+  const handleFinishEnemyEncounter = () => {
+    if (!game?.combat || game.combat.status === "active") {
       return;
     }
 
@@ -756,7 +885,8 @@ export default function GamePage() {
       lastStageMessage: null,
       pendingDrop: null,
       pendingEnemy: null,
-      pendingEncounterChoice: null
+      pendingEncounterChoice: null,
+      combat: null
     });
   };
 
@@ -935,23 +1065,8 @@ export default function GamePage() {
 
         <section className="md:col-span-6 md:flex">
           <Card className="flex h-full min-h-[calc(100vh-3rem)] w-full flex-col border-amber-800/45 bg-stone-950/85 backdrop-blur-md">
-            <CardHeader>
-              <div className="flex items-center gap-2 text-amber-300">
-                <ScrollText className="h-5 w-5" />
-                <p className="font-[var(--font-cinzel)] text-xs uppercase tracking-[0.3em]">
-                  Sala de decisiones
-                </p>
-              </div>
-              <CardTitle className="font-[var(--font-cinzel)] text-3xl text-amber-100">
-                Tarjetas de aventura
-              </CardTitle>
-              <CardDescription className="text-stone-300">
-                Cada dia tiene 3 etapas: mision de vida, actividad principal y accion de cierre.
-              </CardDescription>
-            </CardHeader>
-
-            <CardContent className="flex flex-1 flex-col rounded-b-xl border-t border-amber-700/20 bg-stone-900/50 p-4">
-              <div className="mb-4 grid grid-cols-3 gap-2">
+            <CardHeader className="pb-3">
+              <div className="grid grid-cols-3 gap-2">
                 {dayStageIndicators.map((stageItem) => {
                   const isActive = stageItem.stage === currentDayStage;
                   return (
@@ -969,6 +1084,9 @@ export default function GamePage() {
                   );
                 })}
               </div>
+            </CardHeader>
+
+            <CardContent className="flex flex-1 flex-col rounded-b-xl border-t border-amber-700/20 bg-stone-900/50 p-4">
 
               {game.phase === "lifeMission" && currentLifeMission && (
                 <div className="space-y-4">
@@ -1136,12 +1254,18 @@ export default function GamePage() {
                       {getEncounterChoiceLabel(game.pendingEncounterChoice)}
                     </h3>
                     <p className="mt-2 text-stone-300">
-                      Te cruzaste con un enemigo. La pelea se resolvera en el proximo paso.
+                      {game.combat?.status === "won"
+                        ? `Victoria. Ganaste ${game.pendingEnemy.experiencia} XP y +${game.pendingEnemy.reputacion} reputacion.`
+                        : game.combat?.status === "lost"
+                          ? "Fuiste derrotado. Sobrevivis con 1 de vida."
+                          : game.combat?.status === "fled"
+                            ? "Lograste escapar del combate."
+                            : "Te cruzaste con un enemigo. Elige tu accion cada turno."}
                     </p>
                   </div>
 
                   <div className="grid gap-4 md:grid-cols-2">
-                    <div className="overflow-hidden rounded-lg border border-amber-700/25 bg-stone-950/70">
+                    <div className="relative overflow-hidden rounded-lg border border-amber-700/25 bg-stone-950/70">
                       {game.pendingEnemy.imagen ? (
                         <>
                           {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -1156,21 +1280,116 @@ export default function GamePage() {
                           Sin imagen
                         </div>
                       )}
+                      <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-stone-950/95 via-stone-950/80 to-transparent px-3 pb-3 pt-8">
+                        <div className="mb-1 flex items-center justify-between text-xs text-stone-200">
+                          <span className="flex items-center gap-1.5 font-medium text-amber-100">
+                            <HeartPulse className="h-3.5 w-3.5 text-red-400" />
+                            Vida
+                          </span>
+                          <span className="tabular-nums text-stone-300">
+                            {game.combat?.enemyVida ?? game.pendingEnemy.vida}/
+                            {game.combat?.enemyVidaMax ?? game.pendingEnemy.vida}
+                          </span>
+                        </div>
+                        <div className="h-2.5 overflow-hidden rounded-full border border-amber-900/40 bg-stone-950/90">
+                          <div
+                            className="h-full rounded-full bg-gradient-to-r from-red-700 to-red-500 transition-[width]"
+                            style={{
+                              width: `${Math.min(
+                                100,
+                                Math.max(
+                                  0,
+                                  ((game.combat?.enemyVida ?? game.pendingEnemy.vida) /
+                                    (game.combat?.enemyVidaMax ?? game.pendingEnemy.vida)) *
+                                    100
+                                )
+                              )}%`
+                            }}
+                          />
+                        </div>
+                      </div>
                     </div>
-                    <div className="rounded-lg border border-amber-700/25 bg-stone-900/60 p-4 text-sm text-stone-200">
-                      <p className="font-[var(--font-cinzel)] text-xl text-amber-100">{game.pendingEnemy.nombre}</p>
-                      <p className="mt-2">Nivel: {game.pendingEnemy.nivel}</p>
-                      <p>Vida: {game.pendingEnemy.vida}</p>
-                      <p>Ataque: {game.pendingEnemy.ataque}</p>
-                      <p>Defensa: {game.pendingEnemy.defensa}</p>
-                      <p className="mt-2 text-stone-300">Bloqueo: {game.pendingEnemy.bloqueo}</p>
-                      <p className="text-stone-300">Esquiva: {game.pendingEnemy.esquiva}</p>
+
+                    <div className="space-y-3">
+                      <div className="rounded-lg border border-amber-700/25 bg-stone-900/60 p-4">
+                        <div className="mb-3 flex items-start justify-between gap-2">
+                          <p className="font-[var(--font-cinzel)] text-xl text-amber-100">
+                            {game.pendingEnemy.nombre}
+                          </p>
+                          <span className="shrink-0 rounded border border-amber-700/35 bg-amber-950/40 px-2 py-0.5 text-xs text-amber-200">
+                            Nivel {game.pendingEnemy.nivel}
+                          </span>
+                        </div>
+
+                        <div className="rounded-lg border border-amber-700/30 bg-amber-900/15 p-3">
+                          <p className="mb-3 flex items-center gap-2 text-amber-200">
+                            <Shield className="h-4 w-4" />
+                            Stats del enemigo
+                          </p>
+                          <div className="grid grid-cols-4 gap-2 text-stone-100">
+                            {[
+                              { label: "Ataque", value: game.pendingEnemy.ataque, Icon: Sword },
+                              { label: "Defensa", value: game.pendingEnemy.defensa, Icon: Shield },
+                              {
+                                label: "Bloqueo",
+                                value: game.pendingEnemy.bloqueo,
+                                Icon: ShieldHalf
+                              },
+                              { label: "Esquiva", value: game.pendingEnemy.esquiva, Icon: Wind }
+                            ].map(renderHeroStatCell)}
+                          </div>
+                        </div>
+                      </div>
                     </div>
                   </div>
 
-                  <Button onClick={handleContinueEnemyEncounter} className="w-full">
-                    Continuar
-                  </Button>
+                  {game.combat && game.combat.log.length > 0 && (
+                    <div className="rounded-lg border border-amber-700/25 bg-stone-900/60 p-3">
+                      <p className="mb-2 text-xs uppercase tracking-[0.2em] text-amber-300/80">
+                        Combate
+                      </p>
+                      <ul
+                        ref={combatLogRef}
+                        className="max-h-36 space-y-1 overflow-y-auto text-sm"
+                      >
+                        {game.combat.log.map((line, index) => (
+                          <li key={`${index}-${line}`} className={getCombatLogClassName(line)}>
+                            {line}
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+
+                  {game.combat?.status === "active" ? (
+                    <div className="grid gap-2 md:grid-cols-3">
+                      <Button type="button" onClick={() => handleCombatAction("attack")}>
+                        <Sword className="mr-2 h-4 w-4" />
+                        Atacar
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="secondary"
+                        onClick={() => handleCombatAction("defend")}
+                      >
+                        <Shield className="mr-2 h-4 w-4" />
+                        Defender
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="secondary"
+                        className="border border-amber-700/30"
+                        onClick={() => handleCombatAction("flee")}
+                      >
+                        <Footprints className="mr-2 h-4 w-4" />
+                        Huir
+                      </Button>
+                    </div>
+                  ) : (
+                    <Button onClick={handleFinishEnemyEncounter} className="w-full">
+                      Continuar
+                    </Button>
+                  )}
                 </div>
               )}
 
