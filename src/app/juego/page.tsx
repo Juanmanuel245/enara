@@ -99,13 +99,17 @@ type LastMissionChoice = {
   selectedOptionText: string;
   response?: string;
   effects: Partial<Record<keyof HeroStats, number>>;
+  energiaSpent?: number;
 };
 
 type StageMessage = {
-  stage: 2 | 3;
+  stage: 1 | 2 | 3;
   text: string;
   recovered?: {
     vida: number;
+    energia: number;
+  };
+  spent?: {
     energia: number;
   };
 };
@@ -280,7 +284,7 @@ const applyOptionEffects = (
 
 const applyRestRecovery = (player: PlayerProfile) => {
   const vidaPercent = randomBetween(5, 20);
-  const energiaPercent = randomBetween(25, 50);
+  const energiaPercent = randomBetween(25, 70);
   const vidaRecoveredBase = Math.max(1, Math.round((player.stats.vidaMax * vidaPercent) / 100));
   const energiaRecoveredBase = Math.max(1, Math.round((MAX_ENERGIA * energiaPercent) / 100));
   const newVida = clamp(player.stats.vida + vidaRecoveredBase, 1, player.stats.vidaMax);
@@ -299,6 +303,21 @@ const applyRestRecovery = (player: PlayerProfile) => {
       vida: newVida - player.stats.vida,
       energia: newEnergia - player.energia
     }
+  };
+};
+
+/** Gasta un porcentaje aleatorio de la energia maxima del heroe. */
+const spendEnergyPercent = (player: PlayerProfile, minPercent: number, maxPercent: number) => {
+  const energiaPercent = randomBetween(minPercent, maxPercent);
+  const energiaSpentBase = Math.max(1, Math.round((MAX_ENERGIA * energiaPercent) / 100));
+  const newEnergia = clamp(player.energia - energiaSpentBase, 0, MAX_ENERGIA);
+
+  return {
+    player: {
+      ...player,
+      energia: newEnergia
+    } satisfies PlayerProfile,
+    spent: player.energia - newEnergia
   };
 };
 
@@ -359,7 +378,9 @@ const parseStoredGame = (rawGame: string | null): GameState | null => {
     const parsedStageMessage = parsed.lastStageMessage as Partial<StageMessage> | null | undefined;
     const normalizedStageMessage =
       parsedStageMessage &&
-      (parsedStageMessage.stage === 2 || parsedStageMessage.stage === 3) &&
+      (parsedStageMessage.stage === 1 ||
+        parsedStageMessage.stage === 2 ||
+        parsedStageMessage.stage === 3) &&
       typeof parsedStageMessage.text === "string"
         ? {
             stage: parsedStageMessage.stage,
@@ -371,6 +392,12 @@ const parseStoredGame = (rawGame: string | null): GameState | null => {
                 ? {
                     vida: Math.max(0, Math.round(parsedStageMessage.recovered.vida)),
                     energia: Math.max(0, Math.round(parsedStageMessage.recovered.energia))
+                  }
+                : undefined,
+            spent:
+              parsedStageMessage.spent && typeof parsedStageMessage.spent.energia === "number"
+                ? {
+                    energia: Math.max(0, Math.round(parsedStageMessage.spent.energia))
                   }
                 : undefined
           }
@@ -620,6 +647,7 @@ export default function GamePage() {
     ? Math.min(100, Math.max(0, (game.player.stats.vida / game.player.stats.vidaMax) * 100))
     : 0;
   const energiaPercent = game ? Math.min(100, Math.max(0, (game.player.energia / MAX_ENERGIA) * 100)) : 0;
+  const isExhausted = Boolean(game && game.player.energia <= 0);
   const reputationProgress = game
     ? getReputationProgress(game.player.stats.reputacion, game.player.reputacionNivel)
     : null;
@@ -704,15 +732,16 @@ export default function GamePage() {
   };
 
   const handleMissionChoice = (option: MissionOption, mission: Mission) => {
-    if (!game) {
+    if (!game || game.player.energia <= 0) {
       return;
     }
 
-    const updatedPlayer = applyOptionEffects(game.player, option.effects);
+    const withEffects = applyOptionEffects(game.player, option.effects);
+    const energyResult = spendEnergyPercent(withEffects, 1, 10);
 
     persistGame({
       ...game,
-      player: updatedPlayer,
+      player: energyResult.player,
       phase: "missionResult",
       lastBattle: null,
       lastStageMessage: null,
@@ -722,8 +751,30 @@ export default function GamePage() {
         missionType: mission.type,
         selectedOptionText: option.text,
         response: option.response,
-        effects: option.effects
+        effects: option.effects,
+        energiaSpent: energyResult.spent
       }
+    });
+  };
+
+  const handleStage1ExhaustedRest = () => {
+    if (!game || game.player.energia > 0) {
+      return;
+    }
+
+    const restResult = applyRestRecovery(game.player);
+    persistGame({
+      ...game,
+      player: restResult.player,
+      phase: "stageMessage",
+      lastBattle: null,
+      lastMissionChoice: null,
+      lastStageMessage: {
+        stage: 1,
+        text: "Estabas agotado y tuviste que descansar",
+        recovered: restResult.recovered
+      },
+      pendingDrop: null
     });
   };
 
@@ -753,15 +804,22 @@ export default function GamePage() {
       return;
     }
 
+    if (choice !== "rest" && game.player.energia <= 0) {
+      return;
+    }
+
     if (choice === "shop") {
+      const energyResult = spendEnergyPercent(game.player, 5, 15);
       persistGame({
         ...game,
+        player: energyResult.player,
         phase: "stageMessage",
         lastBattle: null,
         lastMissionChoice: null,
         lastStageMessage: {
           stage: 2,
-          text: "Pasaste a saludar por la tienda"
+          text: "Pasaste a saludar por la tienda",
+          spent: { energia: energyResult.spent }
         },
         pendingDrop: null
       });
@@ -769,14 +827,17 @@ export default function GamePage() {
     }
 
     if (choice === "work") {
+      const energyResult = spendEnergyPercent(game.player, 10, 20);
       persistGame({
         ...game,
+        player: energyResult.player,
         phase: "stageMessage",
         lastBattle: null,
         lastMissionChoice: null,
         lastStageMessage: {
           stage: 2,
-          text: "Te pusiste a trabajar"
+          text: "Te pusiste a trabajar",
+          spent: { energia: energyResult.spent }
         },
         pendingDrop: null
       });
@@ -801,6 +862,10 @@ export default function GamePage() {
 
   const handleDayStage3Choice = (choice: "rest" | DayStage3EncounterChoice) => {
     if (!game) {
+      return;
+    }
+
+    if (choice !== "rest" && game.player.energia <= 0) {
       return;
     }
 
@@ -845,8 +910,12 @@ export default function GamePage() {
       return;
     }
 
+    const energyResult = spendEnergyPercent(game.player, 10, 30);
+    const combat = createCombatState(selectedEnemy);
+
     persistGame({
       ...game,
+      player: energyResult.player,
       phase: "enemyEncounter",
       lastBattle: null,
       lastMissionChoice: null,
@@ -854,7 +923,10 @@ export default function GamePage() {
       pendingDrop: null,
       pendingEnemy: selectedEnemy,
       pendingEncounterChoice: choice,
-      combat: createCombatState(selectedEnemy)
+      combat: {
+        ...combat,
+        log: [`Gastaste ${energyResult.spent} de energia.`, ...combat.log]
+      }
     });
   };
 
@@ -895,6 +967,15 @@ export default function GamePage() {
 
   const handleContinueStageMessage = () => {
     if (!game?.lastStageMessage) {
+      return;
+    }
+
+    if (game.lastStageMessage.stage === 1) {
+      persistGame({
+        ...game,
+        phase: "dayStage2",
+        lastStageMessage: null
+      });
       return;
     }
 
@@ -1200,41 +1281,79 @@ export default function GamePage() {
 
               {game.phase === "lifeMission" && currentLifeMission && (
                 <div className="space-y-4">
-                  <div className="rounded-lg border border-amber-700/25 bg-stone-900/60 p-4">
-                    <p className="mb-1 text-xs uppercase tracking-[0.2em] text-amber-300/80">
-                      Dia {game.turnIndex} - Etapa 1
-                    </p>
-                    <h3 className="font-[var(--font-cinzel)] text-2xl text-amber-100">
-                      {currentLifeMission.title}
-                    </h3>
-                    <p className="mt-2 text-stone-300">{currentLifeMission.description}</p>
-                  </div>
-
-                  <div className="grid gap-3">
-                    {currentLifeMission.options.map((option) => (
+                  {isExhausted ? (
+                    <>
+                      <div className="rounded-lg border border-amber-700/25 bg-stone-900/60 p-4">
+                        <p className="mb-1 text-xs uppercase tracking-[0.2em] text-amber-300/80">
+                          Dia {game.turnIndex} - Etapa 1
+                        </p>
+                        <h3 className="font-[var(--font-cinzel)] text-2xl text-amber-100">Sin energia</h3>
+                        <p className="mt-2 text-stone-300">
+                          Estas agotado. La unica accion disponible es descansar.
+                        </p>
+                      </div>
                       <Button
-                        key={option.id}
                         type="button"
                         variant="secondary"
-                        className="h-auto justify-start whitespace-normal border border-amber-700/30 bg-stone-800/80 py-3 text-left text-stone-100 hover:bg-stone-700"
-                        onClick={() => handleMissionChoice(option, currentLifeMission)}
+                        className="h-auto w-full justify-start whitespace-normal border border-amber-700/30 bg-stone-800/80 py-3 text-left text-stone-100 hover:bg-stone-700"
+                        onClick={handleStage1ExhaustedRest}
                       >
-                        {option.text}
+                        Descansar
                       </Button>
-                    ))}
-                  </div>
+                    </>
+                  ) : (
+                    <>
+                      <div className="rounded-lg border border-amber-700/25 bg-stone-900/60 p-4">
+                        <p className="mb-1 text-xs uppercase tracking-[0.2em] text-amber-300/80">
+                          Dia {game.turnIndex} - Etapa 1
+                        </p>
+                        <h3 className="font-[var(--font-cinzel)] text-2xl text-amber-100">
+                          {currentLifeMission.title}
+                        </h3>
+                        <p className="mt-2 text-stone-300">{currentLifeMission.description}</p>
+                      </div>
+
+                      <div className="grid gap-3">
+                        {currentLifeMission.options.map((option) => (
+                          <Button
+                            key={option.id}
+                            type="button"
+                            variant="secondary"
+                            className="h-auto justify-start whitespace-normal border border-amber-700/30 bg-stone-800/80 py-3 text-left text-stone-100 hover:bg-stone-700"
+                            onClick={() => handleMissionChoice(option, currentLifeMission)}
+                          >
+                            {option.text}
+                          </Button>
+                        ))}
+                      </div>
+                    </>
+                  )}
                 </div>
               )}
 
               {game.phase === "lifeMission" && !currentLifeMission && (
                 <div className="space-y-4 rounded-lg border border-amber-700/25 bg-stone-900/60 p-5 text-center">
-                  <h3 className="font-[var(--font-cinzel)] text-2xl text-amber-100">Sin mision de vida elegible</h3>
-                  <p className="text-stone-300">
-                    No hay una mision disponible para tu nivel/reputacion en este turno.
-                  </p>
-                  <Button onClick={handleSkipMissingMission} className="w-full">
-                    Continuar
-                  </Button>
+                  {isExhausted ? (
+                    <>
+                      <h3 className="font-[var(--font-cinzel)] text-2xl text-amber-100">Sin energia</h3>
+                      <p className="text-stone-300">
+                        Estas agotado. La unica accion disponible es descansar.
+                      </p>
+                      <Button onClick={handleStage1ExhaustedRest} className="w-full">
+                        Descansar
+                      </Button>
+                    </>
+                  ) : (
+                    <>
+                      <h3 className="font-[var(--font-cinzel)] text-2xl text-amber-100">Sin mision de vida elegible</h3>
+                      <p className="text-stone-300">
+                        No hay una mision disponible para tu nivel/reputacion en este turno.
+                      </p>
+                      <Button onClick={handleSkipMissingMission} className="w-full">
+                        Continuar
+                      </Button>
+                    </>
+                  )}
                 </div>
               )}
 
@@ -1263,6 +1382,9 @@ export default function GamePage() {
                           {effectLine}
                         </li>
                       ))}
+                      {(game.lastMissionChoice.energiaSpent ?? 0) > 0 && (
+                        <li className="text-sm">-{game.lastMissionChoice.energiaSpent} Energia</li>
+                      )}
                     </ul>
                   </div>
 
@@ -1277,14 +1399,19 @@ export default function GamePage() {
                   <div className="rounded-lg border border-amber-700/25 bg-stone-900/60 p-4">
                     <p className="mb-1 text-xs uppercase tracking-[0.2em] text-amber-300/80">Dia {game.turnIndex} - Etapa 2</p>
                     <h3 className="font-[var(--font-cinzel)] text-2xl text-amber-100">
-                      Decidi tu actividad
+                      {isExhausted ? "Sin energia" : "Decidi tu actividad"}
                     </h3>
-                    <p className="mt-2 text-stone-300">Elegi si queres pasar por la tienda, descansar o trabajar.</p>
+                    <p className="mt-2 text-stone-300">
+                      {isExhausted
+                        ? "Estas agotado. La unica accion disponible es descansar."
+                        : "Elegi si queres pasar por la tienda, descansar o trabajar."}
+                    </p>
                   </div>
                   <div className="grid gap-3">
                     <Button
                       type="button"
                       variant="secondary"
+                      disabled={isExhausted}
                       className="h-auto justify-start whitespace-normal border border-amber-700/30 bg-stone-800/80 py-3 text-left text-stone-100 hover:bg-stone-700"
                       onClick={() => handleDayStage2Choice("shop")}
                     >
@@ -1301,6 +1428,7 @@ export default function GamePage() {
                     <Button
                       type="button"
                       variant="secondary"
+                      disabled={isExhausted}
                       className="h-auto justify-start whitespace-normal border border-amber-700/30 bg-stone-800/80 py-3 text-left text-stone-100 hover:bg-stone-700"
                       onClick={() => handleDayStage2Choice("work")}
                     >
@@ -1314,8 +1442,14 @@ export default function GamePage() {
                 <div className="space-y-4">
                   <div className="rounded-lg border border-amber-700/25 bg-stone-900/60 p-4">
                     <p className="mb-1 text-xs uppercase tracking-[0.2em] text-amber-300/80">Dia {game.turnIndex} - Etapa 3</p>
-                    <h3 className="font-[var(--font-cinzel)] text-2xl text-amber-100">Elegi tu accion final del dia</h3>
-                    <p className="mt-2 text-stone-300">La accion que tomes define el cierre de la jornada.</p>
+                    <h3 className="font-[var(--font-cinzel)] text-2xl text-amber-100">
+                      {isExhausted ? "Sin energia" : "Elegi tu accion final del dia"}
+                    </h3>
+                    <p className="mt-2 text-stone-300">
+                      {isExhausted
+                        ? "Estas agotado. La unica accion disponible es descansar."
+                        : "La accion que tomes define el cierre de la jornada."}
+                    </p>
                   </div>
                   <div className="grid gap-3">
                     <Button
@@ -1329,6 +1463,7 @@ export default function GamePage() {
                     <Button
                       type="button"
                       variant="secondary"
+                      disabled={isExhausted}
                       className="h-auto justify-start whitespace-normal border border-amber-700/30 bg-stone-800/80 py-3 text-left text-stone-100 hover:bg-stone-700"
                       onClick={() => handleDayStage3Choice("defend")}
                     >
@@ -1337,6 +1472,7 @@ export default function GamePage() {
                     <Button
                       type="button"
                       variant="secondary"
+                      disabled={isExhausted}
                       className="h-auto justify-start whitespace-normal border border-amber-700/30 bg-stone-800/80 py-3 text-left text-stone-100 hover:bg-stone-700"
                       onClick={() => handleDayStage3Choice("cave")}
                     >
@@ -1345,6 +1481,7 @@ export default function GamePage() {
                     <Button
                       type="button"
                       variant="secondary"
+                      disabled={isExhausted}
                       className="h-auto justify-start whitespace-normal border border-amber-700/30 bg-stone-800/80 py-3 text-left text-stone-100 hover:bg-stone-700"
                       onClick={() => handleDayStage3Choice("dungeon")}
                     >
@@ -1517,11 +1654,18 @@ export default function GamePage() {
                         <li className="text-sm">Energia recuperada: +{game.lastStageMessage.recovered.energia}</li>
                       </ul>
                     )}
+                    {game.lastStageMessage.spent && game.lastStageMessage.spent.energia > 0 && (
+                      <ul className="mt-3 space-y-1 text-stone-200">
+                        <li className="text-sm">Energia gastada: -{game.lastStageMessage.spent.energia}</li>
+                      </ul>
+                    )}
                   </div>
                   <div className="rounded-lg border border-amber-600/35 bg-amber-950/20 p-4 text-sm text-stone-100">
-                    {game.lastStageMessage.stage === 2
-                      ? "La noche se acerca. Falta elegir la accion final del dia."
-                      : "Cerraste las tres etapas del dia. Al continuar, empieza un nuevo dia y tu heroe cumple un anio."}
+                    {game.lastStageMessage.stage === 1
+                      ? "Recuperaste algo de fuerzas. Al continuar, sigue el atardecer."
+                      : game.lastStageMessage.stage === 2
+                        ? "La noche se acerca. Falta elegir la accion final del dia."
+                        : "Cerraste las tres etapas del dia. Al continuar, empieza un nuevo dia y tu heroe cumple un anio."}
                   </div>
                   <Button onClick={handleContinueStageMessage} className="w-full">
                     Continuar
