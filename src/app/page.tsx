@@ -16,6 +16,7 @@ import {
   DEFAULT_REPUTATION_RANK,
   createInitialEquipment,
   createInitialStats,
+  createInitialBackpacks,
   createInitialInventory,
   createInitialSecondaryStats,
   formatEquipmentSlotLabel,
@@ -40,19 +41,17 @@ export default function Home() {
   const [destinoChoices, setDestinoChoices] = useState<DestinoInicialItem[]>([]);
   const [selectedDestinoId, setSelectedDestinoId] = useState("");
   const [isLoadingDestinos, setIsLoadingDestinos] = useState(true);
-  const [savedPlayer, setSavedPlayer] = useState<PlayerProfile | null>(() => {
-    if (typeof window === "undefined") {
-      return null;
-    }
+  const [savedPlayer, setSavedPlayer] = useState<PlayerProfile | null>(null);
+  const [statusMessage, setStatusMessage] = useState("");
 
+  useEffect(() => {
     const player = parseStoredPlayer(window.localStorage.getItem(PLAYER_STORAGE_KEY));
     if (!player) {
       window.localStorage.removeItem(PLAYER_STORAGE_KEY);
+    } else {
+      setSavedPlayer(player);
     }
-
-    return player;
-  });
-  const [statusMessage, setStatusMessage] = useState("");
+  }, []);
 
   useEffect(() => {
     let isMounted = true;
@@ -132,6 +131,7 @@ export default function Home() {
       experiencia: 0,
       reputacionNivel: DEFAULT_REPUTATION_RANK,
       equipment: createInitialEquipment(),
+      backpacks: createInitialBackpacks(),
       inventory: createInitialInventory(),
       secondaryStats: createInitialSecondaryStats()
     };

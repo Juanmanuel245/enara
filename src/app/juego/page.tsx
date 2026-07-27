@@ -23,7 +23,10 @@ import {
   Trophy,
   Users,
   X,
-  Zap
+  Zap,
+  Gem,
+  CircleDot,
+  Mountain
 } from "lucide-react";
 import { useRouter } from "next/navigation";
 
@@ -46,10 +49,14 @@ import {
 import {
   fetchItems,
   findItemById,
+  getBackpackSlots,
   getLocalItems,
+  isBackpackItem,
   isConsumableItem,
+  normalizeItemSlot,
   normalizeGameItem,
-  rollDroppedItem,
+  resolveItemImage,
+  rollDropOutcome,
   type GameItem
 } from "@/lib/items";
 import {
@@ -84,6 +91,7 @@ import {
   addItemToInventory,
   buyItemToInventory,
   consumeItemFromInventory,
+  equipBackpackFromInventory,
   equipItemFromInventory,
   EQUIPMENT_LAYOUT,
   getHeroExperienceProgress,
@@ -97,7 +105,10 @@ import {
   DEFAULT_HERO_AGE,
   GAME_STORAGE_KEY,
   PLAYER_STORAGE_KEY,
+  RING_ITEM_SLOT,
+  RING_SLOT_KEYS,
   sellItemFromInventoryAt,
+  unequipBackpackToInventory,
   unequipItemToInventory,
   type HeroStats,
   type PlayerProfile,
@@ -109,6 +120,29 @@ import {
   getShopSellPrice,
   pickShopOffers
 } from "@/lib/shop";
+import {
+  createCaveExplorationState,
+  getCaveClicksRemaining,
+  getCaveEventLabel,
+  normalizeCaveExplorationState,
+  revealCaveCell,
+  type CaveExplorationState
+} from "@/lib/cueva";
+import {
+  advanceDungeonStage,
+  createDungeonExplorationState,
+  getCurrentDungeonStage,
+  getDungeonEventLabel,
+  isDungeonFleeAllowed,
+  markDungeonAbandoned,
+  markDungeonStageClearedAfterVictory,
+  normalizeDungeonExplorationState,
+  patchDungeonChoice,
+  patchDungeonStage,
+  revealDungeonChoice,
+  setDungeonEnemyFound,
+  type DungeonExplorationState
+} from "@/lib/mazmorra";
 
 const HERO_LEVEL_XP_TABLE = getHeroLevelXpTable();
 const REPUTATION_RANK_XP_TABLE = getReputationRankXpTable();
@@ -162,6 +196,8 @@ type GamePhase =
   | "dayStage2"
   | "shop"
   | "dayStage3"
+  | "caveExploration"
+  | "dungeonExploration"
   | "stageMessage"
   | "enemyEncounter"
   | "battle"
@@ -178,8 +214,11 @@ type GameState = {
   lastMissionChoice: LastMissionChoice | null;
   lastStageMessage: StageMessage | null;
   pendingDrop: GameItem | null;
+  pendingGoldDrop: number | null;
   pendingEnemy: Enemigo | null;
   pendingEncounterChoice: DayStage3EncounterChoice | null;
+  caveExploration: CaveExplorationState | null;
+  dungeonExploration: DungeonExplorationState | null;
   combat: CombatState | null;
   shopOffers: string[];
   campaignStats: CampaignStats;
@@ -230,16 +269,6 @@ const normalizeCombatState = (raw: unknown, enemy: Enemigo | null): CombatState 
 };
 
 const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value));
-
-const resolveItemImage = (image?: string) => {
-  if (!image) {
-    return "";
-  }
-  if (image.startsWith("http") || image.startsWith("/")) {
-    return image;
-  }
-  return `/items/armas/${image}`;
-};
 
 const randomBetween = (min: number, max: number) => Math.floor(Math.random() * (max - min + 1)) + min;
 
@@ -312,6 +341,31 @@ const getItemEffectLines = (effects: Partial<Record<keyof HeroStats, number>>) =
       value: effects[key] ?? 0,
       label: statLabels[key]
     }));
+
+const getItemEffectDiffLines = (
+  candidateEffects: Partial<Record<keyof HeroStats, number>>,
+  equippedEffects: Partial<Record<keyof HeroStats, number>>
+) => {
+  const keys = new Set<keyof HeroStats>([
+    ...(Object.keys(candidateEffects) as (keyof HeroStats)[]),
+    ...(Object.keys(equippedEffects) as (keyof HeroStats)[])
+  ]);
+
+  return Array.from(keys)
+    .map((key) => {
+      const candidateValue = typeof candidateEffects[key] === "number" ? (candidateEffects[key] ?? 0) : 0;
+      const equippedValue = typeof equippedEffects[key] === "number" ? (equippedEffects[key] ?? 0) : 0;
+      return {
+        key,
+        value: candidateValue - equippedValue,
+        label: statLabels[key]
+      };
+    })
+    .filter((line) => line.value !== 0);
+};
+
+const getItemOvrLabel = (item: Pick<GameItem, "ovr"> | null | undefined) =>
+  typeof item?.ovr === "number" && Number.isFinite(item.ovr) ? item.ovr : "—";
 
 const applyOptionEffects = (
   player: PlayerProfile,
@@ -428,6 +482,8 @@ const parseStoredGame = (rawGame: string | null): GameState | null => {
         phase === "dayStage2" ||
         phase === "shop" ||
         phase === "dayStage3" ||
+        phase === "caveExploration" ||
+        phase === "dungeonExploration" ||
         phase === "stageMessage" ||
         phase === "enemyEncounter" ||
         phase === "battle" ||
@@ -480,6 +536,18 @@ const parseStoredGame = (rawGame: string | null): GameState | null => {
         ? parsedEncounterChoice
         : null;
 
+    const normalizedCaveExploration =
+      normalizedPhase === "caveExploration"
+        ? normalizeCaveExplorationState(parsed.caveExploration) ?? createCaveExplorationState()
+        : null;
+
+    const normalizedDungeonExploration =
+      normalizedPhase === "dungeonExploration" ||
+      (normalizedPhase === "enemyEncounter" && parsed.pendingEncounterChoice === "dungeon")
+        ? normalizeDungeonExplorationState(parsed.dungeonExploration) ??
+          createDungeonExplorationState()
+        : null;
+
     const pendingEnemy = normalizeEnemigo(parsed.pendingEnemy);
     const shopOffers = Array.isArray(parsed.shopOffers)
       ? parsed.shopOffers.filter((itemId): itemId is string => typeof itemId === "string" && itemId.length > 0)
@@ -496,8 +564,14 @@ const parseStoredGame = (rawGame: string | null): GameState | null => {
       lastMissionChoice: parsed.lastMissionChoice ?? null,
       lastStageMessage: normalizedStageMessage,
       pendingDrop: normalizeGameItem(parsed.pendingDrop),
+      pendingGoldDrop:
+        typeof parsed.pendingGoldDrop === "number" && Number.isFinite(parsed.pendingGoldDrop)
+          ? Math.max(0, Math.round(parsed.pendingGoldDrop))
+          : null,
       pendingEnemy,
       pendingEncounterChoice: normalizedEncounterChoice,
+      caveExploration: normalizedCaveExploration,
+      dungeonExploration: normalizedDungeonExploration,
       combat:
         normalizedPhase === "enemyEncounter"
           ? normalizeCombatState(parsed.combat, pendingEnemy)
@@ -561,8 +635,11 @@ export default function GamePage() {
       lastMissionChoice: null,
       lastStageMessage: null,
       pendingDrop: null,
+      pendingGoldDrop: null,
       pendingEnemy: null,
       pendingEncounterChoice: null,
+      caveExploration: null,
+      dungeonExploration: null,
       combat: null,
       shopOffers: [],
       campaignStats: createInitialCampaignStats(loadedPlayer.coins),
@@ -809,6 +886,25 @@ export default function GamePage() {
     const itemId = game?.player.equipment[slotKey];
     return itemId ? findItemById(itemCatalog, itemId) : null;
   };
+  const getEquipmentSlotLabel = (slotKey: string) =>
+    EQUIPMENT_LAYOUT.find((slot) => slot.key === slotKey)?.label ?? slotKey;
+  const getTargetEquipmentSlotForItem = (item: GameItem): string | null => {
+    if (!game || isConsumableItem(item) || isBackpackItem(item)) {
+      return null;
+    }
+
+    const normalizedSlot = normalizeItemSlot(item.slot);
+    if (!normalizedSlot) {
+      return null;
+    }
+
+    if (normalizedSlot === RING_ITEM_SLOT) {
+      const emptyRingSlot = RING_SLOT_KEYS.find((slotKey) => !game.player.equipment[slotKey]);
+      return emptyRingSlot ?? RING_SLOT_KEYS[0];
+    }
+
+    return normalizedSlot;
+  };
 
   const vidaPercent = effectiveHeroStats
     ? Math.min(100, Math.max(0, (game!.player.stats.vida / effectiveHeroStats.vidaMax) * 100))
@@ -824,16 +920,76 @@ export default function GamePage() {
   const currentDayStage: 1 | 2 | 3 = game
     ? game.phase === "dayStage2" || game.phase === "shop"
       ? 2
-      : game.phase === "dayStage3" || game.phase === "enemyEncounter"
-      ? 3
-      : game.phase === "stageMessage"
-      ? game.lastStageMessage?.stage ?? 3
-      : 1
+      : game.phase === "dayStage3" ||
+          game.phase === "caveExploration" ||
+          game.phase === "dungeonExploration" ||
+          game.phase === "enemyEncounter"
+        ? 3
+        : game.phase === "stageMessage"
+          ? (game.lastStageMessage?.stage ?? 3)
+          : 1
     : 1;
   const dayStageIndicators: { stage: 1 | 2 | 3; label: string; Icon: typeof Sun }[] = [
     { stage: 1, label: "Sol pleno", Icon: Sun },
     { stage: 2, label: "Atardecer", Icon: Sunset },
     { stage: 3, label: "Anochecer", Icon: Moon }
+  ];
+
+  const dayStage3ChoiceOptions: {
+    choice: "rest" | DayStage3EncounterChoice;
+    label: string;
+    description: string;
+    Icon: typeof Moon;
+    accent: {
+      icon: string;
+      box: string;
+      hover: string;
+    };
+  }[] = [
+    {
+      choice: "rest",
+      label: "Seguir descansando",
+      description: "Recupera energia sin arriesgar combate.",
+      Icon: Moon,
+      accent: {
+        icon: "text-sky-300",
+        box: "bg-sky-950/70 border-sky-600/35",
+        hover: "hover:border-sky-500/45 hover:bg-stone-800"
+      }
+    },
+    {
+      choice: "defend",
+      label: "Defender los caminos",
+      description: "Enfrenta enemigos en los caminos del reino.",
+      Icon: Shield,
+      accent: {
+        icon: "text-emerald-300",
+        box: "bg-emerald-950/70 border-emerald-600/35",
+        hover: "hover:border-emerald-500/45 hover:bg-stone-800"
+      }
+    },
+    {
+      choice: "cave",
+      label: "Ingresar a cueva",
+      description: "Explora la oscuridad en busca de tesoros.",
+      Icon: Mountain,
+      accent: {
+        icon: "text-amber-300",
+        box: "bg-amber-950/70 border-amber-600/35",
+        hover: "hover:border-amber-500/45 hover:bg-stone-800"
+      }
+    },
+    {
+      choice: "dungeon",
+      label: "Ingresar a Mazmorra",
+      description: "Un desafio peligroso con mayores recompensas.",
+      Icon: Skull,
+      accent: {
+        icon: "text-red-300",
+        box: "bg-red-950/70 border-red-600/35",
+        hover: "hover:border-red-500/45 hover:bg-stone-800"
+      }
+    }
   ];
   const encounterEnemyVida = game?.pendingEnemy
     ? game.combat?.enemyVida ?? game.pendingEnemy.vida
@@ -843,6 +999,13 @@ export default function GamePage() {
     : 1;
   const isEncounterEnemyDefeated =
     game?.combat?.status === "won" || encounterEnemyVida <= 0;
+  const canFleeEncounter =
+    !game?.dungeonExploration ||
+    game.pendingEncounterChoice !== "dungeon" ||
+    isDungeonFleeAllowed(game.dungeonExploration);
+  const currentDungeonStage = game?.dungeonExploration
+    ? getCurrentDungeonStage(game.dungeonExploration)
+    : null;
 
   const finishGame = (gameState: GameState, reason: RetirementReason) => {
     const turnsPlayed = Math.max(0, gameState.turnIndex - 1);
@@ -857,8 +1020,11 @@ export default function GamePage() {
       lastMissionChoice: null,
       lastStageMessage: null,
       pendingDrop: null,
+      pendingGoldDrop: null,
       pendingEnemy: null,
       pendingEncounterChoice: null,
+      caveExploration: null,
+      dungeonExploration: null,
       combat: null,
       shopOffers: []
     });
@@ -876,7 +1042,8 @@ export default function GamePage() {
         lastBattle: null,
         lastMissionChoice: null,
         lastStageMessage: null,
-        pendingDrop: null
+        pendingDrop: null,
+        pendingGoldDrop: null
       });
     }
   };
@@ -901,8 +1068,11 @@ export default function GamePage() {
       lastMissionChoice: null,
       lastStageMessage: null,
       pendingDrop: null,
+      pendingGoldDrop: null,
       pendingEnemy: null,
       pendingEncounterChoice: null,
+      caveExploration: null,
+      dungeonExploration: null,
       combat: null,
       shopOffers: [],
       turnIndex: nextTurnIndex,
@@ -941,6 +1111,7 @@ export default function GamePage() {
       lastBattle: null,
       lastStageMessage: null,
       pendingDrop: null,
+      pendingGoldDrop: null,
       lastMissionChoice: {
         missionTitle: mission.title,
         missionType: mission.type,
@@ -1014,6 +1185,7 @@ export default function GamePage() {
         lastMissionChoice: null,
         lastStageMessage: null,
         pendingDrop: null,
+        pendingGoldDrop: null,
         shopOffers: offers.map((item) => item.id)
       });
       return;
@@ -1032,7 +1204,8 @@ export default function GamePage() {
           text: "Te pusiste a trabajar",
           spent: { energia: energyResult.spent }
         },
-        pendingDrop: null
+        pendingDrop: null,
+        pendingGoldDrop: null
       });
       return;
     }
@@ -1076,8 +1249,59 @@ export default function GamePage() {
           recovered: restResult.recovered
         },
         pendingDrop: null,
+        pendingGoldDrop: null,
         pendingEnemy: null,
         pendingEncounterChoice: null,
+        caveExploration: null,
+        dungeonExploration: null,
+        combat: null
+      });
+      return;
+    }
+
+    const energyResult = spendEnergyPercent(game.player, 10, 30);
+
+    if (choice === "cave") {
+      const caveExploration = createCaveExplorationState();
+      persistGame({
+        ...game,
+        player: energyResult.player,
+        phase: "caveExploration",
+        lastBattle: null,
+        lastMissionChoice: null,
+        lastStageMessage: null,
+        pendingDrop: null,
+        pendingGoldDrop: null,
+        pendingEnemy: null,
+        pendingEncounterChoice: "cave",
+        caveExploration: {
+          ...caveExploration,
+          log: [`Gastaste ${energyResult.spent} de energia.`, ...caveExploration.log].slice(-12)
+        },
+        dungeonExploration: null,
+        combat: null
+      });
+      return;
+    }
+
+    if (choice === "dungeon") {
+      const dungeonExploration = createDungeonExplorationState();
+      persistGame({
+        ...game,
+        player: energyResult.player,
+        phase: "dungeonExploration",
+        lastBattle: null,
+        lastMissionChoice: null,
+        lastStageMessage: null,
+        pendingDrop: null,
+        pendingGoldDrop: null,
+        pendingEnemy: null,
+        pendingEncounterChoice: "dungeon",
+        caveExploration: null,
+        dungeonExploration: {
+          ...dungeonExploration,
+          log: [`Gastaste ${energyResult.spent} de energia.`, ...dungeonExploration.log].slice(-12)
+        },
         combat: null
       });
       return;
@@ -1088,6 +1312,7 @@ export default function GamePage() {
     if (!selectedEnemy) {
       persistGame({
         ...game,
+        player: energyResult.player,
         phase: "stageMessage",
         lastBattle: null,
         lastMissionChoice: null,
@@ -1096,14 +1321,16 @@ export default function GamePage() {
           text: `No encontraste enemigos adecuados para ${getEncounterChoiceLabel(choice).toLowerCase()}.`
         },
         pendingDrop: null,
+        pendingGoldDrop: null,
         pendingEnemy: null,
         pendingEncounterChoice: null,
+        caveExploration: null,
+        dungeonExploration: null,
         combat: null
       });
       return;
     }
 
-    const energyResult = spendEnergyPercent(game.player, 10, 30);
     const combat = createCombatState(selectedEnemy);
 
     persistGame({
@@ -1114,13 +1341,405 @@ export default function GamePage() {
       lastMissionChoice: null,
       lastStageMessage: null,
       pendingDrop: null,
+      pendingGoldDrop: null,
       pendingEnemy: selectedEnemy,
       pendingEncounterChoice: choice,
+      caveExploration: null,
+      dungeonExploration: null,
       combat: {
         ...combat,
         log: [`Gastaste ${energyResult.spent} de energia.`, ...combat.log]
       }
     });
+  };
+
+  const handleCaveCellClick = (cellId: number) => {
+    if (!game?.caveExploration || game.caveExploration.status !== "active") {
+      return;
+    }
+
+    const nextCave = revealCaveCell(game.caveExploration, cellId);
+    if (!nextCave) {
+      return;
+    }
+
+    const cell = nextCave.cells.find((entry) => entry.id === cellId);
+    if (!cell) {
+      return;
+    }
+
+    let nextPlayer = game.player;
+    let nextCampaignStats = game.campaignStats;
+    let pendingDrop = game.pendingDrop;
+    let pendingGoldDrop = game.pendingGoldDrop;
+    let updatedLog = [...nextCave.log];
+    let dropCellPatch: Partial<(typeof nextCave.cells)[number]> = {};
+
+    if (cell.event === "gold" && cell.goldAmount) {
+      nextPlayer = {
+        ...nextPlayer,
+        coins: nextPlayer.coins + cell.goldAmount
+      };
+      nextCampaignStats = {
+        ...nextCampaignStats,
+        goldEarned: nextCampaignStats.goldEarned + cell.goldAmount
+      };
+    }
+
+    if (cell.event === "drop") {
+      const dropOutcome = rollDropOutcome(itemCatalog, {
+        nivel: game.player.nivel,
+        drop_bonus: 1
+      });
+
+      if (dropOutcome.kind === "item") {
+        const inventoryResult = addItemToInventory(nextPlayer, dropOutcome.item.id);
+        nextPlayer = inventoryResult.player;
+        pendingDrop = dropOutcome.item;
+        pendingGoldDrop = null;
+        dropCellPatch = {
+          dropResolvedAs: "item",
+          dropItemImage: dropOutcome.item.image,
+          dropItemName: dropOutcome.item.name
+        };
+        updatedLog = [
+          ...updatedLog,
+          inventoryResult.ok
+            ? `Obtuviste: ${dropOutcome.item.name} (guardado en inventario).`
+            : `Encontraste ${dropOutcome.item.name}, pero ${inventoryResult.message}`
+        ];
+      } else if (dropOutcome.kind === "gold") {
+        pendingDrop = null;
+        pendingGoldDrop = dropOutcome.amount;
+        dropCellPatch = {
+          dropResolvedAs: "gold",
+          goldAmount: dropOutcome.amount
+        };
+        nextPlayer = {
+          ...nextPlayer,
+          coins: nextPlayer.coins + dropOutcome.amount
+        };
+        nextCampaignStats = {
+          ...nextCampaignStats,
+          goldEarned: nextCampaignStats.goldEarned + dropOutcome.amount
+        };
+        updatedLog = [...updatedLog, `Encontraste ${dropOutcome.amount} monedas de oro.`];
+      } else {
+        dropCellPatch = { dropResolvedAs: "nothing" };
+        updatedLog = [...updatedLog, "La casilla no tenia nada util."];
+      }
+    }
+
+    const caveWithLog = {
+      ...nextCave,
+      cells: nextCave.cells.map((entry) =>
+        entry.id === cellId ? { ...entry, ...dropCellPatch } : entry
+      ),
+      log: updatedLog.slice(-12)
+    };
+
+    if (cell.event === "enemy") {
+      const selectedEnemy = pickRandomEnemigoForEncounter(enemigoItems, game.player.nivel, "cave");
+
+      if (!selectedEnemy) {
+        persistGame({
+          ...game,
+          player: nextPlayer,
+          campaignStats: nextCampaignStats,
+          phase: "caveExploration",
+          pendingDrop,
+          pendingGoldDrop,
+          pendingEnemy: null,
+          caveExploration: {
+            ...caveWithLog,
+            status: "completed",
+            log: [...updatedLog, "El enemigo huyo antes de que pudieras enfrentarlo."].slice(-12)
+          }
+        });
+        return;
+      }
+
+      const enemyLog = [
+        ...updatedLog.slice(0, -1),
+        `¡${selectedEnemy.nombre} salta desde la oscuridad!`
+      ];
+
+      persistGame({
+        ...game,
+        player: nextPlayer,
+        campaignStats: nextCampaignStats,
+        phase: "caveExploration",
+        pendingDrop,
+        pendingGoldDrop,
+        pendingEnemy: selectedEnemy,
+        pendingEncounterChoice: "cave",
+        caveExploration: {
+          ...caveWithLog,
+          status: "enemy_found",
+          log: enemyLog.slice(-12),
+          cells: caveWithLog.cells.map((entry) =>
+            entry.id === cellId
+              ? {
+                  ...entry,
+                  enemyImage: selectedEnemy.imagen,
+                  enemyName: selectedEnemy.nombre
+                }
+              : entry
+          )
+        },
+        combat: null
+      });
+      return;
+    }
+
+    persistGame({
+      ...game,
+      player: nextPlayer,
+      campaignStats: nextCampaignStats,
+      pendingDrop,
+      pendingGoldDrop,
+      caveExploration: caveWithLog
+    });
+  };
+
+  const handleFinishCaveExploration = () => {
+    if (!game?.caveExploration || game.caveExploration.status !== "completed") {
+      return;
+    }
+
+    advanceTurn(game.player, null);
+  };
+
+  const handleStartCaveBattle = () => {
+    if (
+      !game?.caveExploration ||
+      game.caveExploration.status !== "enemy_found" ||
+      !game.pendingEnemy
+    ) {
+      return;
+    }
+
+    const combat = createCombatState(game.pendingEnemy);
+    persistGame({
+      ...game,
+      phase: "enemyEncounter",
+      caveExploration: null,
+      pendingEncounterChoice: "cave",
+      combat: {
+        ...combat,
+        log: [...game.caveExploration.log.slice(-2), ...combat.log].slice(-12)
+      }
+    });
+  };
+
+  const applyDungeonChoiceReveal = (
+    baseGame: GameState,
+    dungeonState: DungeonExplorationState,
+    choiceId: number
+  ): GameState | null => {
+    const revealResult = revealDungeonChoice(dungeonState, choiceId);
+    if (!revealResult) {
+      return null;
+    }
+
+    let nextPlayer = baseGame.player;
+    let nextCampaignStats = baseGame.campaignStats;
+    let pendingDrop = baseGame.pendingDrop;
+    let pendingGoldDrop = baseGame.pendingGoldDrop;
+    let pendingEnemy = baseGame.pendingEnemy;
+    let nextDungeon = revealResult.state;
+    const stageId = dungeonState.currentStage;
+
+    if (revealResult.event === "gold" && revealResult.goldAmount) {
+      nextPlayer = {
+        ...nextPlayer,
+        coins: nextPlayer.coins + revealResult.goldAmount
+      };
+      nextCampaignStats = {
+        ...nextCampaignStats,
+        goldEarned: nextCampaignStats.goldEarned + revealResult.goldAmount
+      };
+      nextDungeon = patchDungeonStage(nextDungeon, stageId, {
+        goldAmount: revealResult.goldAmount
+      });
+      nextDungeon = patchDungeonChoice(nextDungeon, stageId, choiceId, {
+        goldAmount: revealResult.goldAmount
+      });
+    }
+
+    if (revealResult.event === "drop") {
+      const dropOutcome = rollDropOutcome(itemCatalog, {
+        nivel: baseGame.player.nivel,
+        drop_bonus: 1
+      });
+
+      if (dropOutcome.kind === "item") {
+        const inventoryResult = addItemToInventory(nextPlayer, dropOutcome.item.id);
+        nextPlayer = inventoryResult.player;
+        pendingDrop = dropOutcome.item;
+        pendingGoldDrop = null;
+        nextDungeon = patchDungeonStage(nextDungeon, stageId, {
+          dropResolvedAs: "item",
+          dropItemImage: dropOutcome.item.image,
+          dropItemName: dropOutcome.item.name
+        });
+        nextDungeon = patchDungeonChoice(nextDungeon, stageId, choiceId, {
+          dropResolvedAs: "item",
+          dropItemImage: dropOutcome.item.image,
+          dropItemName: dropOutcome.item.name
+        });
+        nextDungeon = {
+          ...nextDungeon,
+          log: [
+            ...nextDungeon.log,
+            inventoryResult.ok
+              ? `Obtuviste: ${dropOutcome.item.name} (guardado en inventario).`
+              : `Encontraste ${dropOutcome.item.name}, pero ${inventoryResult.message}`
+          ].slice(-12)
+        };
+      } else if (dropOutcome.kind === "gold") {
+        pendingDrop = null;
+        pendingGoldDrop = dropOutcome.amount;
+        nextDungeon = patchDungeonStage(nextDungeon, stageId, {
+          dropResolvedAs: "gold",
+          goldAmount: dropOutcome.amount
+        });
+        nextDungeon = patchDungeonChoice(nextDungeon, stageId, choiceId, {
+          dropResolvedAs: "gold",
+          goldAmount: dropOutcome.amount
+        });
+        nextPlayer = {
+          ...nextPlayer,
+          coins: nextPlayer.coins + dropOutcome.amount
+        };
+        nextCampaignStats = {
+          ...nextCampaignStats,
+          goldEarned: nextCampaignStats.goldEarned + dropOutcome.amount
+        };
+        nextDungeon = {
+          ...nextDungeon,
+          log: [...nextDungeon.log, `Encontraste ${dropOutcome.amount} monedas de oro.`].slice(-12)
+        };
+      } else {
+        nextDungeon = patchDungeonStage(nextDungeon, stageId, {
+          dropResolvedAs: "nothing"
+        });
+        nextDungeon = patchDungeonChoice(nextDungeon, stageId, choiceId, {
+          dropResolvedAs: "nothing"
+        });
+        nextDungeon = {
+          ...nextDungeon,
+          log: [...nextDungeon.log, "La sala no tenia nada util."].slice(-12)
+        };
+      }
+    }
+
+    if (revealResult.event === "enemy") {
+      const selectedEnemy = pickRandomEnemigoForEncounter(
+        enemigoItems,
+        baseGame.player.nivel,
+        "dungeon"
+      );
+
+      if (!selectedEnemy) {
+        return {
+          ...baseGame,
+          player: nextPlayer,
+          campaignStats: nextCampaignStats,
+          pendingDrop,
+          pendingGoldDrop,
+          pendingEnemy: null,
+          phase: "dungeonExploration",
+          pendingEncounterChoice: "dungeon",
+          dungeonExploration: {
+            ...nextDungeon,
+            status: "stage_cleared",
+            log: [...nextDungeon.log, "El enemigo huyo antes de que pudieras enfrentarlo."].slice(-12)
+          },
+          combat: null
+        };
+      }
+
+      pendingEnemy = selectedEnemy;
+      nextDungeon = setDungeonEnemyFound(nextDungeon, selectedEnemy.nombre, selectedEnemy.imagen);
+      nextDungeon = patchDungeonChoice(nextDungeon, stageId, choiceId, {
+        enemyName: selectedEnemy.nombre,
+        enemyImage: selectedEnemy.imagen
+      });
+    }
+
+    return {
+      ...baseGame,
+      player: nextPlayer,
+      campaignStats: nextCampaignStats,
+      pendingDrop,
+      pendingGoldDrop,
+      pendingEnemy,
+      phase: "dungeonExploration",
+      pendingEncounterChoice: "dungeon",
+      dungeonExploration: nextDungeon,
+      combat: null
+    };
+  };
+
+  const handleDungeonChoiceClick = (choiceId: number) => {
+    if (!game?.dungeonExploration || game.dungeonExploration.status !== "active") {
+      return;
+    }
+
+    const nextGame = applyDungeonChoiceReveal(game, game.dungeonExploration, choiceId);
+    if (!nextGame) {
+      return;
+    }
+
+    persistGame(nextGame);
+  };
+
+  const handleAdvanceDungeonStage = () => {
+    if (!game?.dungeonExploration || game.dungeonExploration.status !== "stage_cleared") {
+      return;
+    }
+
+    const advanced = advanceDungeonStage(game.dungeonExploration);
+    if (!advanced) {
+      return;
+    }
+
+    persistGame({
+      ...game,
+      dungeonExploration: advanced
+    });
+  };
+
+  const handleStartDungeonBattle = () => {
+    if (
+      !game?.dungeonExploration ||
+      game.dungeonExploration.status !== "enemy_found" ||
+      !game.pendingEnemy
+    ) {
+      return;
+    }
+
+    const combat = createCombatState(game.pendingEnemy);
+    persistGame({
+      ...game,
+      phase: "enemyEncounter",
+      pendingEncounterChoice: "dungeon",
+      combat: {
+        ...combat,
+        log: [...game.dungeonExploration.log.slice(-2), ...combat.log].slice(-12)
+      }
+    });
+  };
+
+  const handleFinishDungeonExploration = () => {
+    if (!game?.dungeonExploration) {
+      return;
+    }
+
+    if (game.dungeonExploration.status === "completed" || game.dungeonExploration.status === "abandoned") {
+      advanceTurn(game.player, null);
+    }
   };
 
   const handleCombatAction = (action: CombatAction) => {
@@ -1152,6 +1771,7 @@ export default function GamePage() {
 
     let nextCombat = result.combat;
     let pendingDrop = game.pendingDrop;
+    let pendingGoldDrop = game.pendingGoldDrop;
     let nextCampaignStats = game.campaignStats;
 
     const previousHeroDamage = game.combat.heroDamageDone;
@@ -1169,23 +1789,40 @@ export default function GamePage() {
         ...nextCampaignStats,
         enemiesKilled: nextCampaignStats.enemiesKilled + 1
       };
-      const droppedItem = rollDroppedItem(itemCatalog, game.pendingEnemy);
+      const dropOutcome = rollDropOutcome(itemCatalog, game.pendingEnemy);
 
-      if (droppedItem) {
-        const inventoryResult = addItemToInventory(nextPlayer, droppedItem.id);
+      if (dropOutcome.kind === "item") {
+        const inventoryResult = addItemToInventory(nextPlayer, dropOutcome.item.id);
         nextPlayer = inventoryResult.player;
-        pendingDrop = droppedItem;
+        pendingDrop = dropOutcome.item;
+        pendingGoldDrop = null;
         nextCombat = {
           ...result.combat,
           log: [
             ...result.combat.log,
             inventoryResult.ok
-              ? `Obtuviste: ${droppedItem.name} (guardado en inventario).`
-              : `Obtuviste: ${droppedItem.name}, pero ${inventoryResult.message}`
+              ? `Obtuviste: ${dropOutcome.item.name} (guardado en inventario).`
+              : `Obtuviste: ${dropOutcome.item.name}, pero ${inventoryResult.message}`
           ].slice(-12)
+        };
+      } else if (dropOutcome.kind === "gold") {
+        pendingDrop = null;
+        pendingGoldDrop = dropOutcome.amount;
+        nextPlayer = {
+          ...nextPlayer,
+          coins: nextPlayer.coins + dropOutcome.amount
+        };
+        nextCampaignStats = {
+          ...nextCampaignStats,
+          goldEarned: nextCampaignStats.goldEarned + dropOutcome.amount
+        };
+        nextCombat = {
+          ...result.combat,
+          log: [...result.combat.log, `Obtuviste ${dropOutcome.amount} monedas de oro.`].slice(-12)
         };
       } else {
         pendingDrop = null;
+        pendingGoldDrop = null;
         nextCombat = {
           ...result.combat,
           log: [...result.combat.log, "No obtuviste botin esta vez."].slice(-12)
@@ -1197,6 +1834,7 @@ export default function GamePage() {
       ...game,
       player: nextPlayer,
       pendingDrop,
+      pendingGoldDrop,
       combat: nextCombat,
       campaignStats: nextCampaignStats
     });
@@ -1217,10 +1855,39 @@ export default function GamePage() {
       return;
     }
 
+    const resolveBackpackBonus = (backpackItemId: string) => {
+      const backpackItem = findItemById(itemCatalog, backpackItemId);
+      return backpackItem ? getBackpackSlots(backpackItem) : 0;
+    };
+
     const result = isConsumableItem(item)
       ? consumeItemFromInventory(game.player, slotIndex, item)
-      : equipItemFromInventory(game.player, slotIndex, item);
+      : isBackpackItem(item)
+        ? equipBackpackFromInventory(game.player, slotIndex, item, resolveBackpackBonus)
+        : equipItemFromInventory(game.player, slotIndex, item);
 
+    if (!result.ok) {
+      window.alert(result.message);
+      return;
+    }
+
+    persistGame({
+      ...game,
+      player: result.player
+    });
+  };
+
+  const handleBackpackSlotClick = (backpackSlotIndex: number) => {
+    if (!game) {
+      return;
+    }
+
+    const resolveBackpackBonus = (backpackItemId: string) => {
+      const backpackItem = findItemById(itemCatalog, backpackItemId);
+      return backpackItem ? getBackpackSlots(backpackItem) : 0;
+    };
+
+    const result = unequipBackpackToInventory(game.player, backpackSlotIndex, resolveBackpackBonus);
     if (!result.ok) {
       window.alert(result.message);
       return;
@@ -1327,6 +1994,32 @@ export default function GamePage() {
       return;
     }
 
+    if (game.pendingEncounterChoice === "dungeon" && game.dungeonExploration) {
+      if (game.combat.status === "fled") {
+        persistGame({
+          ...game,
+          phase: "dungeonExploration",
+          pendingEnemy: null,
+          pendingDrop: null,
+          pendingGoldDrop: null,
+          combat: null,
+          dungeonExploration: markDungeonAbandoned(game.dungeonExploration)
+        });
+        return;
+      }
+
+      if (game.combat.status === "won") {
+        persistGame({
+          ...game,
+          phase: "dungeonExploration",
+          pendingEnemy: null,
+          combat: null,
+          dungeonExploration: markDungeonStageClearedAfterVictory(game.dungeonExploration)
+        });
+        return;
+      }
+    }
+
     advanceTurn(game.player, null);
   };
 
@@ -1383,8 +2076,11 @@ export default function GamePage() {
       lastMissionChoice: null,
       lastStageMessage: null,
       pendingDrop: null,
+      pendingGoldDrop: null,
       pendingEnemy: null,
       pendingEncounterChoice: null,
+      caveExploration: null,
+      dungeonExploration: null,
       combat: null,
       shopOffers: [],
       campaignStats: createInitialCampaignStats(game.player.coins),
@@ -1818,11 +2514,27 @@ export default function GamePage() {
 
                           const buyPrice = getShopBuyPrice(offerItem.cost, game.player.stats.carisma);
                           const canAfford = game.player.coins >= buyPrice;
+                          const targetEquipmentSlot = getTargetEquipmentSlotForItem(offerItem);
+                          const equippedInTargetSlot = targetEquipmentSlot
+                            ? getEquippedItemForSlot(targetEquipmentSlot)
+                            : null;
+                          const equippedItemIdForTargetSlot = targetEquipmentSlot
+                            ? game.player.equipment[targetEquipmentSlot]
+                            : null;
+                          const isAlreadyEquipped =
+                            Boolean(equippedItemIdForTargetSlot && equippedItemIdForTargetSlot === offerItem.id);
+                          const offerEffectLines = getItemEffectLines(offerItem.effects);
+                          const effectDiffLines =
+                            equippedInTargetSlot && !isAlreadyEquipped
+                              ? getItemEffectDiffLines(offerItem.effects, equippedInTargetSlot.effects)
+                              : [];
+                          const requiredLevel = Math.max(1, Math.round(offerItem.nivel));
+                          const canEquipNow = game.player.nivel >= requiredLevel;
 
                           return (
                             <div
                               key={`shop-offer-${offerId}`}
-                              className="flex flex-col gap-3 rounded-md border border-amber-700/25 bg-stone-950/70 p-3 sm:flex-row sm:items-center sm:justify-between"
+                              className="group relative flex flex-col gap-3 rounded-md border border-amber-700/25 bg-stone-950/70 p-3 sm:flex-row sm:items-center sm:justify-between"
                             >
                               <div className="flex items-center gap-3">
                                 {offerItem.image ? (
@@ -1838,11 +2550,17 @@ export default function GamePage() {
                                 <div>
                                   <p className="font-medium text-amber-100">{offerItem.name}</p>
                                   <p className="text-xs text-stone-400">
-                                    {offerItem.rarity} · Nivel {offerItem.nivel} · Base {offerItem.cost} monedas
+                                    {offerItem.rarity} · OVR {getItemOvrLabel(offerItem)} · Base {offerItem.cost} monedas
                                   </p>
-                                  {getItemEffectLines(offerItem.effects).length > 0 && (
+                                  <p className="mt-0.5 text-xs text-stone-400">Nivel minimo para equipar: {requiredLevel}</p>
+                                  {!canEquipNow && (
+                                    <p className="mt-0.5 text-xs text-red-300">
+                                      Tu nivel actual ({game.player.nivel}) es menor al requerido.
+                                    </p>
+                                  )}
+                                  {offerEffectLines.length > 0 && (
                                     <ul className="mt-1 text-xs">
-                                      {getItemEffectLines(offerItem.effects).map((effect) => (
+                                      {offerEffectLines.map((effect) => (
                                         <li
                                           key={`shop-offer-${offerId}-${effect.key}`}
                                           className={effect.value > 0 ? "text-emerald-300" : "text-red-300"}
@@ -1855,6 +2573,54 @@ export default function GamePage() {
                                   )}
                                 </div>
                               </div>
+                              <span className="pointer-events-none absolute bottom-[calc(100%+0.5rem)] left-1/2 z-20 hidden w-56 -translate-x-1/2 rounded-lg border border-amber-500/35 bg-stone-950/95 p-2 text-left shadow-lg shadow-black/40 backdrop-blur-sm group-hover:block group-focus-within:block">
+                                <p className="text-[11px] text-amber-100">OVR: {getItemOvrLabel(offerItem)}</p>
+                                <p className="mt-1 text-[10px] text-stone-300">Nivel minimo: {requiredLevel}</p>
+                                {!canEquipNow && (
+                                  <p className="mt-1 text-[10px] text-red-300">No podes equiparlo todavia.</p>
+                                )}
+                                {offerEffectLines.length > 0 && (
+                                  <ul className="mt-1 text-[11px]">
+                                    {offerEffectLines.map((effect) => (
+                                      <li
+                                        key={`shop-offer-tooltip-${offerId}-${effect.key}`}
+                                        className={effect.value > 0 ? "text-emerald-300" : "text-red-300"}
+                                      >
+                                        {effect.value > 0 ? "+" : ""}
+                                        {effect.value} {effect.label}
+                                      </li>
+                                    ))}
+                                  </ul>
+                                )}
+                                {!isAlreadyEquipped && targetEquipmentSlot && equippedInTargetSlot && (
+                                  <div className="mt-1 border-t border-amber-700/30 pt-1">
+                                    <p className="text-[10px] uppercase tracking-[0.12em] text-amber-300/90">
+                                      Comparado con {getEquipmentSlotLabel(targetEquipmentSlot)}
+                                    </p>
+                                    <p className="mt-1 line-clamp-1 text-[10px] text-stone-300">
+                                      {equippedInTargetSlot.name}
+                                    </p>
+                                    <p className="text-[10px] text-stone-400">
+                                      OVR: {getItemOvrLabel(equippedInTargetSlot)}
+                                    </p>
+                                    {effectDiffLines.length > 0 ? (
+                                      <ul className="mt-1 text-[11px]">
+                                        {effectDiffLines.map((effect) => (
+                                          <li
+                                            key={`shop-offer-diff-${offerId}-${effect.key}`}
+                                            className={effect.value > 0 ? "text-emerald-300" : "text-red-300"}
+                                          >
+                                            {effect.value > 0 ? "+" : ""}
+                                            {effect.value} {effect.label}
+                                          </li>
+                                        ))}
+                                      </ul>
+                                    ) : (
+                                      <p className="mt-1 text-[10px] text-stone-300">Sin diferencia de stats.</p>
+                                    )}
+                                  </div>
+                                )}
+                              </span>
                               <Button
                                 type="button"
                                 disabled={!canAfford}
@@ -1946,42 +2712,459 @@ export default function GamePage() {
                     </p>
                   </div>
                   <div className="grid gap-3">
-                    <Button
-                      type="button"
-                      variant="secondary"
-                      className="h-auto justify-start whitespace-normal border border-amber-700/30 bg-stone-800/80 py-3 text-left text-stone-100 hover:bg-stone-700"
-                      onClick={() => handleDayStage3Choice("rest")}
-                    >
-                      Seguir descansando
-                    </Button>
-                    <Button
-                      type="button"
-                      variant="secondary"
-                      disabled={isExhausted}
-                      className="h-auto justify-start whitespace-normal border border-amber-700/30 bg-stone-800/80 py-3 text-left text-stone-100 hover:bg-stone-700"
-                      onClick={() => handleDayStage3Choice("defend")}
-                    >
-                      Defender los caminos
-                    </Button>
-                    <Button
-                      type="button"
-                      variant="secondary"
-                      disabled={isExhausted}
-                      className="h-auto justify-start whitespace-normal border border-amber-700/30 bg-stone-800/80 py-3 text-left text-stone-100 hover:bg-stone-700"
-                      onClick={() => handleDayStage3Choice("cave")}
-                    >
-                      Ingresar a cueva
-                    </Button>
-                    <Button
-                      type="button"
-                      variant="secondary"
-                      disabled={isExhausted}
-                      className="h-auto justify-start whitespace-normal border border-amber-700/30 bg-stone-800/80 py-3 text-left text-stone-100 hover:bg-stone-700"
-                      onClick={() => handleDayStage3Choice("dungeon")}
-                    >
-                      Ingresar a Mazmorra
-                    </Button>
+                    {dayStage3ChoiceOptions.map((option) => {
+                      const disabled = option.choice !== "rest" && isExhausted;
+
+                      return (
+                        <Button
+                          key={option.choice}
+                          type="button"
+                          variant="secondary"
+                          disabled={disabled}
+                          className={`group h-auto justify-start gap-4 whitespace-normal border border-amber-700/30 bg-stone-800/80 p-4 text-left text-stone-100 transition-colors ${option.accent.hover} disabled:cursor-not-allowed disabled:opacity-45`}
+                          onClick={() => handleDayStage3Choice(option.choice)}
+                        >
+                          <div
+                            className={`flex h-12 w-12 shrink-0 items-center justify-center rounded-lg border transition-transform group-hover:scale-105 ${option.accent.box}`}
+                          >
+                            <option.Icon className={`h-6 w-6 ${option.accent.icon}`} />
+                          </div>
+                          <div className="min-w-0 flex-1">
+                            <p className="font-[var(--font-cinzel)] text-base font-medium text-amber-100">
+                              {option.label}
+                            </p>
+                            <p className="mt-0.5 text-sm leading-snug text-stone-400">{option.description}</p>
+                          </div>
+                        </Button>
+                      );
+                    })}
                   </div>
+                </div>
+              )}
+
+              {game.phase === "caveExploration" && game.caveExploration && (
+                <div className="space-y-4">
+                  <div className="rounded-lg border border-amber-700/25 bg-stone-900/60 p-4">
+                    <p className="mb-1 text-xs uppercase tracking-[0.2em] text-amber-300/80">
+                      Dia {game.turnIndex} - Etapa 3
+                    </p>
+                    <h3 className="font-[var(--font-cinzel)] text-2xl text-amber-100">Ingresar a cueva</h3>
+                    <p className="mt-2 text-stone-300">
+                      {game.caveExploration.status === "enemy_found" && game.pendingEnemy
+                        ? `${game.pendingEnemy.nombre} te bloquea el paso. Revisa el mapa y preparate.`
+                        : `Explora la oscuridad. Puedes revelar hasta ${game.caveExploration.maxClicks} casillas.`}
+                    </p>
+                    {game.caveExploration.status === "active" && (
+                      <p className="mt-2 text-sm text-amber-200/90">
+                        Clics restantes: {getCaveClicksRemaining(game.caveExploration)}
+                      </p>
+                    )}
+                  </div>
+
+                  <div
+                    className="mx-auto grid max-w-sm gap-2"
+                    style={{
+                      gridTemplateColumns: `repeat(${game.caveExploration.gridSize}, minmax(0, 1fr))`
+                    }}
+                  >
+                    {game.caveExploration.cells.map((cell) => {
+                      const isRevealed = cell.revealed;
+                      const canClick =
+                        game.caveExploration?.status === "active" &&
+                        !isRevealed &&
+                        getCaveClicksRemaining(game.caveExploration) > 0;
+
+                      const revealedStyles =
+                        cell.event === "enemy"
+                          ? "border-red-700/50 bg-red-950/40 text-red-200"
+                          : cell.event === "gold" ||
+                              (cell.event === "drop" && cell.dropResolvedAs === "gold")
+                            ? "border-amber-500/50 bg-amber-950/35 text-amber-200"
+                            : cell.event === "drop" && cell.dropResolvedAs === "nothing"
+                              ? "border-stone-600/50 bg-stone-800/70 text-stone-300"
+                              : cell.event === "drop"
+                                ? "border-emerald-700/50 bg-emerald-950/35 text-emerald-200"
+                                : "border-stone-600/50 bg-stone-800/70 text-stone-300";
+
+                      return (
+                        <button
+                          key={cell.id}
+                          type="button"
+                          disabled={!canClick}
+                          onClick={() => handleCaveCellClick(cell.id)}
+                          className={`flex aspect-square items-center justify-center overflow-hidden rounded-lg border text-xs transition-colors ${
+                            isRevealed
+                              ? revealedStyles
+                              : canClick
+                                ? "border-amber-700/35 bg-stone-950/80 text-stone-500 hover:border-amber-500/60 hover:bg-stone-900/90 hover:text-amber-100"
+                                : "cursor-not-allowed border-stone-800/60 bg-stone-950/50 text-stone-600"
+                          }`}
+                          aria-label={
+                            isRevealed
+                              ? cell.enemyName
+                                ? `Casilla revelada: ${cell.enemyName}`
+                                : cell.dropItemName
+                                  ? `Casilla revelada: ${cell.dropItemName}`
+                                  : `Casilla revelada: ${getCaveEventLabel(cell.event)}`
+                              : "Casilla sin explorar"
+                          }
+                        >
+                          {isRevealed ? (
+                            cell.event === "enemy" && cell.enemyImage ? (
+                              <>
+                                {/* eslint-disable-next-line @next/next/no-img-element */}
+                                <img
+                                  src={resolveEnemigoImagen(cell.enemyImage)}
+                                  alt={cell.enemyName ?? "Enemigo"}
+                                  className="h-full w-full rounded-md object-cover"
+                                />
+                              </>
+                            ) : cell.event === "enemy" ? (
+                              <Skull className="h-6 w-6" />
+                            ) : cell.event === "gold" ||
+                              (cell.event === "drop" && cell.dropResolvedAs === "gold") ? (
+                              <Coins className="h-6 w-6" />
+                            ) : cell.event === "drop" && cell.dropItemImage ? (
+                              <>
+                                {/* eslint-disable-next-line @next/next/no-img-element */}
+                                <img
+                                  src={resolveItemImage(cell.dropItemImage)}
+                                  alt={cell.dropItemName ?? "Item"}
+                                  className="h-10 w-10 object-contain p-0.5"
+                                />
+                              </>
+                            ) : cell.event === "drop" && cell.dropResolvedAs === "nothing" ? (
+                              <CircleDot className="h-5 w-5 opacity-60" />
+                            ) : cell.event === "drop" ? (
+                              <Gem className="h-6 w-6" />
+                            ) : (
+                              <CircleDot className="h-5 w-5 opacity-60" />
+                            )
+                          ) : (
+                            <span className="text-lg font-semibold">?</span>
+                          )}
+                        </button>
+                      );
+                    })}
+                  </div>
+
+                  {game.caveExploration.log.length > 0 && (
+                    <div className="rounded-lg border border-amber-700/25 bg-stone-900/60 p-3">
+                      <p className="mb-2 text-xs uppercase tracking-[0.2em] text-amber-300/80">
+                        Exploracion
+                      </p>
+                      <ul className="max-h-36 space-y-1 overflow-y-auto text-sm text-stone-200">
+                        {game.caveExploration.log.map((line, index) => (
+                          <li key={`${index}-${line}`}>{line}</li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+
+                  {game.caveExploration.status === "enemy_found" && game.pendingEnemy && (
+                    <div className="space-y-3">
+                      <div className="rounded-lg border border-red-700/35 bg-red-950/20 p-4 text-sm text-stone-100">
+                        <p className="font-semibold text-red-200">Enemigo encontrado</p>
+                        <p className="mt-1 font-[var(--font-cinzel)] text-lg text-amber-100">
+                          {game.pendingEnemy.nombre}
+                        </p>
+                        <p className="mt-1 text-stone-300">Nivel {game.pendingEnemy.nivel}</p>
+                      </div>
+                      <Button onClick={handleStartCaveBattle} className="w-full">
+                        <Swords className="mr-2 h-4 w-4" />
+                        Ir a la lucha
+                      </Button>
+                    </div>
+                  )}
+
+                  {game.caveExploration.status === "completed" && (
+                    <div className="space-y-3">
+                      {game.pendingGoldDrop && (
+                        <div className="rounded-lg border border-amber-600/35 bg-amber-950/20 p-4 text-sm text-stone-100">
+                          <p className="font-semibold text-amber-200">Oro obtenido en la cueva</p>
+                          <p className="mt-1">+{game.pendingGoldDrop} monedas</p>
+                        </div>
+                      )}
+                      {game.pendingDrop && (
+                        <div className="rounded-lg border border-emerald-700/35 bg-emerald-950/20 p-4 text-sm text-stone-100">
+                          <p className="font-semibold text-emerald-200">Botin obtenido en la cueva</p>
+                          <p className="mt-1">{game.pendingDrop.name} — guardado en inventario</p>
+                          {game.pendingDrop.image && (
+                            <>
+                              {/* eslint-disable-next-line @next/next/no-img-element */}
+                              <img
+                                src={resolveItemImage(game.pendingDrop.image)}
+                                alt={game.pendingDrop.name}
+                                className="mt-2 h-16 w-16 object-contain"
+                              />
+                            </>
+                          )}
+                        </div>
+                      )}
+                      <Button onClick={handleFinishCaveExploration} className="w-full">
+                        Continuar
+                      </Button>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {game.phase === "dungeonExploration" && game.dungeonExploration && (
+                <div className="space-y-4">
+                  <div className="rounded-lg border border-amber-700/25 bg-stone-900/60 p-4">
+                    <p className="mb-1 text-xs uppercase tracking-[0.2em] text-amber-300/80">
+                      Dia {game.turnIndex} - Etapa 3
+                    </p>
+                    <h3 className="font-[var(--font-cinzel)] text-2xl text-amber-100">
+                      Ingresar a Mazmorra
+                    </h3>
+                    <p className="mt-2 text-stone-300">
+                      {game.dungeonExploration.status === "abandoned"
+                        ? "Abandonaste la mazmorra al escapar de un combate."
+                        : game.dungeonExploration.status === "completed"
+                          ? "Completaste todas las etapas y venciste al jefe final."
+                          : game.dungeonExploration.status === "enemy_found" && game.pendingEnemy
+                            ? `${game.pendingEnemy.nombre} bloquea la etapa ${game.dungeonExploration.currentStage}.`
+                            : game.dungeonExploration.status === "stage_cleared"
+                              ? `Etapa ${game.dungeonExploration.currentStage} superada. Puedes avanzar.`
+                              : `Elige una de las 4 opciones en la etapa ${game.dungeonExploration.currentStage}.`}
+                    </p>
+                  </div>
+
+                  <div className="overflow-x-auto rounded-lg border border-amber-700/25 bg-stone-950/70 p-4">
+                    <div className="flex min-w-[20rem] items-center justify-between gap-2">
+                      {game.dungeonExploration.stages.map((stage, index) => {
+                        const isCurrent = stage.id === game.dungeonExploration!.currentStage;
+                        const isCleared = stage.status === "cleared";
+                        const nodeStyles = isCleared
+                          ? "border-emerald-600/50 bg-emerald-950/35 text-emerald-200"
+                          : isCurrent
+                            ? stage.isFinal
+                              ? "border-red-600/60 bg-red-950/40 text-red-200 ring-2 ring-red-500/30"
+                              : "border-amber-500/60 bg-amber-950/40 text-amber-100 ring-2 ring-amber-400/30"
+                            : "border-stone-700/50 bg-stone-900/60 text-stone-500";
+
+                        const renderStageIcon = () => {
+                          if (!stage.explored) {
+                            return <span className="text-sm font-semibold">{stage.id}</span>;
+                          }
+                          if (stage.event === "enemy" && stage.enemyImage) {
+                            return (
+                              <>
+                                {/* eslint-disable-next-line @next/next/no-img-element */}
+                                <img
+                                  src={resolveEnemigoImagen(stage.enemyImage)}
+                                  alt={stage.enemyName ?? "Enemigo"}
+                                  className="h-8 w-8 rounded object-cover"
+                                />
+                              </>
+                            );
+                          }
+                          if (stage.event === "enemy") {
+                            return <Skull className="h-5 w-5" />;
+                          }
+                          if (
+                            stage.event === "gold" ||
+                            (stage.event === "drop" && stage.dropResolvedAs === "gold")
+                          ) {
+                            return <Coins className="h-5 w-5" />;
+                          }
+                          if (stage.event === "drop" && stage.dropItemImage) {
+                            return (
+                              <>
+                                {/* eslint-disable-next-line @next/next/no-img-element */}
+                                <img
+                                  src={resolveItemImage(stage.dropItemImage)}
+                                  alt={stage.dropItemName ?? "Item"}
+                                  className="h-7 w-7 object-contain"
+                                />
+                              </>
+                            );
+                          }
+                          if (stage.event === "drop") {
+                            return <Gem className="h-5 w-5" />;
+                          }
+                          return <CircleDot className="h-5 w-5 opacity-60" />;
+                        };
+
+                        return (
+                          <div key={stage.id} className="flex flex-1 items-center">
+                            <div className="flex flex-col items-center gap-1">
+                              <div
+                                className={`flex h-14 w-14 items-center justify-center rounded-full border ${nodeStyles}`}
+                                title={
+                                  stage.isFinal
+                                    ? `Etapa final${stage.explored && stage.event ? `: ${getDungeonEventLabel(stage.event)}` : ""}`
+                                    : stage.explored && stage.event
+                                      ? `Etapa ${stage.id}: ${getDungeonEventLabel(stage.event)}`
+                                      : `Etapa ${stage.id}`
+                                }
+                              >
+                                {renderStageIcon()}
+                              </div>
+                              <span className="text-[10px] uppercase tracking-wider text-stone-400">
+                                {stage.isFinal ? "Jefe" : `Etapa ${stage.id}`}
+                              </span>
+                            </div>
+                            {index < game.dungeonExploration!.stages.length - 1 && (
+                              <div
+                                className={`mx-1 h-0.5 flex-1 ${
+                                  isCleared ? "bg-emerald-700/50" : "bg-stone-700/60"
+                                }`}
+                              />
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  {currentDungeonStage?.explored && currentDungeonStage.event && (
+                    <div className="rounded-lg border border-amber-700/25 bg-stone-900/60 p-4 text-sm text-stone-200">
+                      <p className="font-semibold text-amber-200">
+                        Resultado etapa {currentDungeonStage.id}:{" "}
+                        {getDungeonEventLabel(currentDungeonStage.event)}
+                      </p>
+                      {currentDungeonStage.event === "gold" && currentDungeonStage.goldAmount && (
+                        <p className="mt-1">+{currentDungeonStage.goldAmount} monedas</p>
+                      )}
+                      {currentDungeonStage.event === "drop" && currentDungeonStage.dropItemName && (
+                        <p className="mt-1">{currentDungeonStage.dropItemName}</p>
+                      )}
+                      {currentDungeonStage.event === "enemy" && currentDungeonStage.enemyName && (
+                        <p className="mt-1">{currentDungeonStage.enemyName}</p>
+                      )}
+                    </div>
+                  )}
+
+                  {game.dungeonExploration.log.length > 0 && (
+                    <div className="rounded-lg border border-amber-700/25 bg-stone-900/60 p-3">
+                      <p className="mb-2 text-xs uppercase tracking-[0.2em] text-amber-300/80">
+                        Mazmorra
+                      </p>
+                      <ul className="max-h-36 space-y-1 overflow-y-auto text-sm text-stone-200">
+                        {game.dungeonExploration.log.map((line, index) => (
+                          <li key={`${index}-${line}`}>{line}</li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+
+                  {game.dungeonExploration.status === "active" && currentDungeonStage && (
+                    <div className="mx-auto grid max-w-sm grid-cols-2 gap-2">
+                      {currentDungeonStage.choices.map((choice) => {
+                        const isRevealed = choice.revealed;
+                        const canClick = !isRevealed && !currentDungeonStage.explored;
+
+                        const revealedStyles =
+                          choice.event === "enemy"
+                            ? "border-red-700/50 bg-red-950/40 text-red-200"
+                            : choice.event === "gold" ||
+                                (choice.event === "drop" && choice.dropResolvedAs === "gold")
+                              ? "border-amber-500/50 bg-amber-950/35 text-amber-200"
+                              : choice.event === "drop" && choice.dropResolvedAs === "nothing"
+                                ? "border-stone-600/50 bg-stone-800/70 text-stone-300"
+                                : choice.event === "drop"
+                                  ? "border-emerald-700/50 bg-emerald-950/35 text-emerald-200"
+                                  : "border-stone-600/50 bg-stone-800/70 text-stone-300";
+
+                        return (
+                          <button
+                            key={choice.id}
+                            type="button"
+                            disabled={!canClick}
+                            onClick={() => handleDungeonChoiceClick(choice.id)}
+                            className={`flex aspect-square items-center justify-center overflow-hidden rounded-lg border text-xs transition-colors ${
+                              isRevealed
+                                ? revealedStyles
+                                : canClick
+                                  ? "border-amber-700/35 bg-stone-950/80 text-stone-500 hover:border-amber-500/60 hover:bg-stone-900/90 hover:text-amber-100"
+                                  : "cursor-not-allowed border-stone-800/60 bg-stone-950/50 text-stone-600"
+                            }`}
+                            aria-label={
+                              isRevealed
+                                ? choice.enemyName
+                                  ? `Opcion revelada: ${choice.enemyName}`
+                                  : choice.dropItemName
+                                    ? `Opcion revelada: ${choice.dropItemName}`
+                                    : `Opcion revelada: ${getDungeonEventLabel(choice.event)}`
+                                : "Opcion sin explorar"
+                            }
+                          >
+                            {isRevealed ? (
+                              choice.event === "enemy" && choice.enemyImage ? (
+                                <>
+                                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                                  <img
+                                    src={resolveEnemigoImagen(choice.enemyImage)}
+                                    alt={choice.enemyName ?? "Enemigo"}
+                                    className="h-full w-full rounded-md object-cover"
+                                  />
+                                </>
+                              ) : choice.event === "enemy" ? (
+                                <Skull className="h-6 w-6" />
+                              ) : choice.event === "gold" ||
+                                (choice.event === "drop" && choice.dropResolvedAs === "gold") ? (
+                                <Coins className="h-6 w-6" />
+                              ) : choice.event === "drop" && choice.dropItemImage ? (
+                                <>
+                                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                                  <img
+                                    src={resolveItemImage(choice.dropItemImage)}
+                                    alt={choice.dropItemName ?? "Item"}
+                                    className="h-10 w-10 object-contain p-0.5"
+                                  />
+                                </>
+                              ) : choice.event === "drop" && choice.dropResolvedAs === "nothing" ? (
+                                <CircleDot className="h-5 w-5 opacity-60" />
+                              ) : choice.event === "drop" ? (
+                                <Gem className="h-6 w-6" />
+                              ) : (
+                                <CircleDot className="h-5 w-5 opacity-60" />
+                              )
+                            ) : (
+                              <span className="text-lg font-semibold">?</span>
+                            )}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
+
+                  {game.dungeonExploration.status === "stage_cleared" && (
+                    <Button onClick={handleAdvanceDungeonStage} className="w-full">
+                      {game.dungeonExploration.currentStage >= game.dungeonExploration.totalStages
+                        ? "Finalizar mazmorra"
+                        : `Continuar a etapa ${game.dungeonExploration.currentStage + 1}`}
+                    </Button>
+                  )}
+
+                  {game.dungeonExploration.status === "enemy_found" && game.pendingEnemy && (
+                    <div className="space-y-3">
+                      <div className="rounded-lg border border-red-700/35 bg-red-950/20 p-4 text-sm text-stone-100">
+                        <p className="font-semibold text-red-200">
+                          {game.dungeonExploration.currentStage === 5
+                            ? "Jefe final"
+                            : "Enemigo encontrado"}
+                        </p>
+                        <p className="mt-1 font-[var(--font-cinzel)] text-lg text-amber-100">
+                          {game.pendingEnemy.nombre}
+                        </p>
+                        <p className="mt-1 text-stone-300">Nivel {game.pendingEnemy.nivel}</p>
+                      </div>
+                      <Button onClick={handleStartDungeonBattle} className="w-full">
+                        <Swords className="mr-2 h-4 w-4" />
+                        Ir a la lucha
+                      </Button>
+                    </div>
+                  )}
+
+                  {(game.dungeonExploration.status === "completed" ||
+                    game.dungeonExploration.status === "abandoned") && (
+                    <Button onClick={handleFinishDungeonExploration} className="w-full">
+                      Continuar
+                    </Button>
+                  )}
                 </div>
               )}
 
@@ -2000,8 +3183,14 @@ export default function GamePage() {
                         : game.combat?.status === "lost"
                           ? "Has muerto en batalla. Tu aventura termina aqui."
                           : game.combat?.status === "fled"
-                            ? "Lograste escapar del combate."
-                            : "Te cruzaste con un enemigo. Elige tu accion cada turno."}
+                            ? game.pendingEncounterChoice === "dungeon"
+                              ? "Escapaste del combate y abandonaste la mazmorra."
+                              : "Lograste escapar del combate."
+                            : game.pendingEncounterChoice === "dungeon" &&
+                                game.dungeonExploration &&
+                                !isDungeonFleeAllowed(game.dungeonExploration)
+                              ? "Combate contra el jefe final. No puedes huir."
+                              : "Te cruzaste con un enemigo. Elige tu accion cada turno."}
                     </p>
                   </div>
 
@@ -2104,7 +3293,9 @@ export default function GamePage() {
                   )}
 
                   {game.combat?.status === "active" ? (
-                    <div className="grid gap-2 md:grid-cols-3">
+                    <div
+                      className={`grid gap-2 ${canFleeEncounter ? "md:grid-cols-3" : "md:grid-cols-2"}`}
+                    >
                       <Button type="button" onClick={() => handleCombatAction("attack")}>
                         <Sword className="mr-2 h-4 w-4" />
                         Atacar
@@ -2117,18 +3308,26 @@ export default function GamePage() {
                         <Shield className="mr-2 h-4 w-4" />
                         Defender
                       </Button>
-                      <Button
-                        type="button"
-                        variant="secondary"
-                        className="border border-amber-700/30"
-                        onClick={() => handleCombatAction("flee")}
-                      >
-                        <Footprints className="mr-2 h-4 w-4" />
-                        Huir
-                      </Button>
+                      {canFleeEncounter && (
+                        <Button
+                          type="button"
+                          variant="secondary"
+                          className="border border-amber-700/30"
+                          onClick={() => handleCombatAction("flee")}
+                        >
+                          <Footprints className="mr-2 h-4 w-4" />
+                          Huir
+                        </Button>
+                      )}
                     </div>
                   ) : (
                     <div className="space-y-3">
+                      {game.combat?.status === "won" && game.pendingGoldDrop && (
+                        <div className="rounded-lg border border-amber-600/35 bg-amber-950/20 p-4 text-sm text-stone-100">
+                          <p className="font-semibold text-amber-200">Oro obtenido</p>
+                          <p className="mt-1">+{game.pendingGoldDrop} monedas</p>
+                        </div>
+                      )}
                       {game.combat?.status === "won" && game.pendingDrop && (
                         <div className="rounded-lg border border-emerald-700/35 bg-emerald-950/20 p-4 text-sm text-stone-100">
                           <p className="font-semibold text-emerald-200">Botin obtenido</p>
@@ -2221,6 +3420,16 @@ export default function GamePage() {
                       </p>
                     </div>
                   </div>
+
+                  {game.lastBattle.winner === "hero" && game.pendingGoldDrop && (
+                    <div className="rounded-lg border border-amber-600/40 bg-amber-900/20 p-4">
+                      <p className="text-xs uppercase tracking-[0.2em] text-amber-300/90">Oro encontrado</p>
+                      <h4 className="mt-1 font-[var(--font-cinzel)] text-xl text-amber-100">
+                        +{game.pendingGoldDrop} monedas
+                      </h4>
+                      <p className="text-sm text-stone-300">El oro se agrego a tu bolsa.</p>
+                    </div>
+                  )}
 
                   {game.lastBattle.winner === "hero" && game.pendingDrop && (
                     <div className="rounded-lg border border-amber-600/40 bg-amber-900/20 p-4">
@@ -2409,11 +3618,11 @@ export default function GamePage() {
                       )}
                       {equippedItem ? (
                         <span className="pointer-events-none absolute bottom-[calc(100%+0.5rem)] left-1/2 z-20 hidden w-48 -translate-x-1/2 rounded-lg border border-amber-500/35 bg-stone-950/90 p-2 text-left shadow-lg shadow-black/40 backdrop-blur-sm group-hover:block group-focus-visible:block">
-                          <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-amber-200">
-                            Click para desequipar
+                          <p className="text-[11px] text-amber-100">
+                            OVR: {getItemOvrLabel(equippedItem)}
                           </p>
                           {getItemEffectLines(equippedItem.effects).length > 0 && (
-                            <ul className="mt-1 border-t border-amber-700/30 pt-1 text-[11px]">
+                            <ul className="mt-1 text-[11px]">
                               {getItemEffectLines(equippedItem.effects).map((effect) => (
                                 <li
                                   key={`${slot.key}-${effect.key}`}
@@ -2434,11 +3643,75 @@ export default function GamePage() {
 
               <div className="border-t border-amber-700/25 pt-3">
                 <p className="mb-2 text-center text-[10px] uppercase tracking-[0.2em] text-amber-300/80">
-                  Inventario
+                  Mochilas
+                </p>
+                <div className="grid grid-cols-4 gap-1.5">
+                  {game.player.backpacks.map((itemId, backpackSlotIndex) => {
+                    const storedItem = itemId ? findItemById(itemCatalog, itemId) : null;
+
+                    return (
+                      <button
+                        type="button"
+                        key={`backpack-slot-${backpackSlotIndex}`}
+                        onClick={() => handleBackpackSlotClick(backpackSlotIndex)}
+                        disabled={!storedItem}
+                        className={`group relative flex aspect-square flex-col items-center justify-center rounded-md border p-1 text-center transition ${
+                          storedItem
+                            ? "border-amber-700/20 bg-stone-900/70 hover:border-amber-500/40 hover:bg-stone-900"
+                            : "cursor-default border-amber-700/20 bg-stone-900/70"
+                        }`}
+                      >
+                        {storedItem ? (
+                          <>
+                            {storedItem.image ? (
+                              <>
+                                {/* eslint-disable-next-line @next/next/no-img-element */}
+                                <img
+                                  src={resolveItemImage(storedItem.image)}
+                                  alt={storedItem.name}
+                                  className="h-8 w-8 object-contain"
+                                />
+                              </>
+                            ) : null}
+                            <p className="line-clamp-2 text-[9px] leading-tight text-amber-100">{storedItem.name}</p>
+                            <span className="pointer-events-none absolute bottom-[calc(100%+0.5rem)] left-1/2 z-20 hidden w-48 -translate-x-1/2 rounded-lg border border-amber-500/35 bg-stone-950/90 p-2 text-left shadow-lg shadow-black/40 backdrop-blur-sm group-hover:block group-focus-visible:block">
+                              <p className="text-[11px] text-amber-100">
+                                OVR: {getItemOvrLabel(storedItem)}
+                              </p>
+                              <p className="mt-1 text-[11px] text-emerald-300">
+                                +{getBackpackSlots(storedItem)} slots de inventario
+                              </p>
+                            </span>
+                          </>
+                        ) : (
+                          <p className="text-[10px] text-stone-500">—</p>
+                        )}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              <div className="border-t border-amber-700/25 pt-3">
+                <p className="mb-2 text-center text-[10px] uppercase tracking-[0.2em] text-amber-300/80">
+                  Inventario ({game.player.inventory.length} slots)
                 </p>
                 <div className="grid grid-cols-4 gap-1.5">
                   {game.player.inventory.map((itemId, slotIndex) => {
                     const storedItem = itemId ? findItemById(itemCatalog, itemId) : null;
+                    const targetEquipmentSlot = storedItem ? getTargetEquipmentSlotForItem(storedItem) : null;
+                    const equippedInTargetSlot = targetEquipmentSlot
+                      ? getEquippedItemForSlot(targetEquipmentSlot)
+                      : null;
+                    const equippedItemIdForTargetSlot = targetEquipmentSlot
+                      ? game.player.equipment[targetEquipmentSlot]
+                      : null;
+                    const isAlreadyEquipped =
+                      Boolean(storedItem && equippedItemIdForTargetSlot === storedItem.id);
+                    const effectDiffLines =
+                      storedItem && equippedInTargetSlot
+                        ? getItemEffectDiffLines(storedItem.effects, equippedInTargetSlot.effects)
+                        : [];
 
                     return (
                       <button
@@ -2466,13 +3739,11 @@ export default function GamePage() {
                             ) : null}
                             <p className="line-clamp-2 text-[9px] leading-tight text-amber-100">{storedItem.name}</p>
                             <span className="pointer-events-none absolute bottom-[calc(100%+0.5rem)] left-1/2 z-20 hidden w-48 -translate-x-1/2 rounded-lg border border-amber-500/35 bg-stone-950/90 p-2 text-left shadow-lg shadow-black/40 backdrop-blur-sm group-hover:block group-focus-visible:block">
-                              <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-amber-200">
-                                {isConsumableItem(storedItem)
-                                  ? "Click para consumir"
-                                  : `Click para equipar en ${storedItem.slot}`}
+                              <p className="text-[11px] text-amber-100">
+                                OVR: {getItemOvrLabel(storedItem)}
                               </p>
                               {getItemEffectLines(storedItem.effects).length > 0 && (
-                                <ul className="mt-1 border-t border-amber-700/30 pt-1 text-[11px]">
+                                <ul className="mt-1 text-[11px]">
                                   {getItemEffectLines(storedItem.effects).map((effect) => (
                                     <li
                                       key={`${slotIndex}-${effect.key}`}
@@ -2483,6 +3754,36 @@ export default function GamePage() {
                                     </li>
                                   ))}
                                 </ul>
+                              )}
+                              {!isAlreadyEquipped && targetEquipmentSlot && equippedInTargetSlot && (
+                                <div className="mt-1 border-t border-amber-700/30 pt-1">
+                                  <p className="text-[10px] uppercase tracking-[0.12em] text-amber-300/90">
+                                    Comparado con {getEquipmentSlotLabel(targetEquipmentSlot)}
+                                  </p>
+                                  <p className="mt-1 line-clamp-1 text-[10px] text-stone-300">
+                                    {equippedInTargetSlot.name}
+                                  </p>
+                                  <p className="text-[10px] text-stone-400">
+                                    OVR: {getItemOvrLabel(equippedInTargetSlot)}
+                                  </p>
+                                  {effectDiffLines.length > 0 ? (
+                                    <ul className="mt-1 text-[11px]">
+                                      {effectDiffLines.map((effect) => (
+                                        <li
+                                          key={`${slotIndex}-diff-${effect.key}`}
+                                          className={effect.value > 0 ? "text-emerald-300" : "text-red-300"}
+                                        >
+                                          {effect.value > 0 ? "+" : ""}
+                                          {effect.value} {effect.label}
+                                        </li>
+                                      ))}
+                                    </ul>
+                                  ) : (
+                                    <p className="mt-1 text-[10px] text-stone-300">
+                                      Sin diferencia de stats.
+                                    </p>
+                                  )}
+                                </div>
                               )}
                             </span>
                           </>

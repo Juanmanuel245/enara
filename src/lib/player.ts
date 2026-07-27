@@ -268,6 +268,9 @@ export type SecondaryWeapon = (typeof SECONDARY_WEAPON_OPTIONS)[number];
 
 export type HeroEquipment = Record<string, string | null>;
 
+export const RING_ITEM_SLOT = "anillo";
+export const RING_SLOT_KEYS = ["anillo_1", "anillo_2"] as const;
+
 export const EQUIPMENT_LAYOUT: { key: string; label: string; span?: "hidden" }[] = [
   { key: "hombrera", label: "Hombrera" },
   { key: "casco", label: "Casco" },
@@ -278,15 +281,37 @@ export const EQUIPMENT_LAYOUT: { key: string; label: string; span?: "hidden" }[]
   { key: "mano_secundaria", label: "Mano secundaria" },
   { key: "cinturon", label: "Cinturon" },
   { key: "mano_principal", label: "Mano principal" },
-  { key: "slot_spacer_left", label: "", span: "hidden" },
+  { key: "anillo_1", label: "Anillo" },
   { key: "pantalon", label: "Pantalon" },
-  { key: "slot_spacer_right", label: "", span: "hidden" },
-  { key: "slot_spacer_bottom_left", label: "", span: "hidden" },
+  { key: "amuleto", label: "Amuleto" },
+  { key: "anillo_2", label: "Anillo" },
   { key: "botas", label: "Botas" },
   { key: "slot_spacer_bottom_right", label: "", span: "hidden" }
 ];
 
-export const INVENTORY_CAPACITY = 12;
+const resolveEquipmentSlotKey = (itemSlot: string, equipment: HeroEquipment): string | null => {
+  const normalized = itemSlot.trim().toLowerCase();
+  if (!normalized || normalized === "consumible" || normalized === BACKPACK_ITEM_SLOT) {
+    return null;
+  }
+
+  if (normalized === RING_ITEM_SLOT) {
+    const emptyRingSlot = RING_SLOT_KEYS.find((slotKey) => !equipment[slotKey]);
+    return emptyRingSlot ?? RING_SLOT_KEYS[0];
+  }
+
+  return normalized;
+};
+
+export const BASE_INVENTORY_SLOTS = 8;
+/** Capacidad maxima de inventario en partidas antiguas (sin mochilas). */
+export const LEGACY_INVENTORY_CAPACITY = 12;
+/** @deprecated Usar BASE_INVENTORY_SLOTS */
+export const INVENTORY_CAPACITY = LEGACY_INVENTORY_CAPACITY;
+export const BACKPACK_SLOT_COUNT = 4;
+export const BACKPACK_ITEM_SLOT = "mochila";
+
+export type BackpackBonusLookup = (itemId: string) => number;
 
 export type PlayerDestinoInicial = {
   id: string;
@@ -306,6 +331,7 @@ export type PlayerProfile = {
   /** Rango de reputacion / reconocimiento (status del heroe). */
   reputacionNivel: number;
   equipment: HeroEquipment;
+  backpacks: (string | null)[];
   inventory: (string | null)[];
   secondaryStats: HeroSecondaryStats;
   destinoInicial?: PlayerDestinoInicial;
@@ -357,12 +383,48 @@ export const normalizeEquipment = (raw: unknown): HeroEquipment => {
     equipment.mano_secundaria = legacyOff;
   }
 
+  const legacyAnillo =
+    typeof source.anillo === "string" ? source.anillo.trim() : "";
+  if (legacyAnillo.length > 0 && !equipment.anillo_1) {
+    equipment.anillo_1 = legacyAnillo;
+  }
+
   return equipment;
 };
 
 export type InventoryMutationResult =
   | { ok: true; player: PlayerProfile; message?: string }
   | { ok: false; player: PlayerProfile; message: string };
+
+export const getBackpackSlotsForItemId = (
+  itemId: string,
+  lookup: BackpackBonusLookup = () => 0
+): number => {
+  const slots = lookup(itemId);
+  return slots > 0 ? Math.round(slots) : 0;
+};
+
+export const getInventoryCapacityFromBackpacks = (
+  backpacks: (string | null)[],
+  lookup: BackpackBonusLookup = () => 0
+): number =>
+  BASE_INVENTORY_SLOTS +
+  backpacks.reduce(
+    (total, backpackId) =>
+      backpackId ? total + getBackpackSlotsForItemId(backpackId, lookup) : total,
+    0
+  );
+
+export const getInventoryCapacity = (
+  player: Pick<PlayerProfile, "backpacks" | "inventory">,
+  lookup: BackpackBonusLookup = () => 0
+): number => {
+  if (player.inventory.length > 0) {
+    return player.inventory.length;
+  }
+
+  return getInventoryCapacityFromBackpacks(player.backpacks, lookup);
+};
 
 export const addItemToInventory = (player: PlayerProfile, itemId: string): InventoryMutationResult => {
   const emptyIndex = player.inventory.findIndex((slot) => slot === null);
@@ -499,30 +561,138 @@ export const consumeItemFromInventory = (
   };
 };
 
-export const equipItemFromInventory = (
+export const equipBackpackFromInventory = (
   player: PlayerProfile,
   slotIndex: number,
-  item: { id: string; slot: string }
+  item: { id: string; slot: string; slots?: number },
+  lookup: BackpackBonusLookup = () => 0
 ): InventoryMutationResult => {
   const inventoryItemId = player.inventory[slotIndex];
   if (!inventoryItemId || inventoryItemId !== item.id) {
     return { ok: false, player, message: "No hay item en ese slot." };
   }
 
-  const equipmentSlot = item.slot.trim();
-  if (!equipmentSlot || equipmentSlot === "consumible") {
-    return { ok: false, player, message: "Este item no se puede equipar." };
+  if (item.slot.trim().toLowerCase() !== BACKPACK_ITEM_SLOT) {
+    return { ok: false, player, message: "Este item no es una mochila." };
+  }
+
+  const emptyBackpackIndex = player.backpacks.findIndex((backpackId) => !backpackId);
+  if (emptyBackpackIndex === -1) {
+    return { ok: false, player, message: "No hay slot de mochila libre." };
+  }
+
+  const bonus =
+    typeof item.slots === "number" && item.slots > 0
+      ? Math.round(item.slots)
+      : getBackpackSlotsForItemId(item.id, lookup);
+
+  if (bonus <= 0) {
+    return { ok: false, player, message: "Esta mochila no otorga slots extra." };
+  }
+
+  const nextInventory = [...player.inventory];
+  nextInventory[slotIndex] = null;
+  for (let index = 0; index < bonus; index += 1) {
+    nextInventory.push(null);
+  }
+
+  const nextBackpacks = [...player.backpacks];
+  nextBackpacks[emptyBackpackIndex] = item.id;
+
+  return {
+    ok: true,
+    player: {
+      ...player,
+      inventory: nextInventory,
+      backpacks: nextBackpacks
+    },
+    message: `Equipaste la mochila (+${bonus} slots).`
+  };
+};
+
+export const unequipBackpackToInventory = (
+  player: PlayerProfile,
+  backpackSlotIndex: number,
+  lookup: BackpackBonusLookup = () => 0
+): InventoryMutationResult => {
+  if (backpackSlotIndex < 0 || backpackSlotIndex >= player.backpacks.length) {
+    return { ok: false, player, message: "Slot de mochila invalido." };
+  }
+
+  const backpackId = player.backpacks[backpackSlotIndex];
+  if (!backpackId) {
+    return { ok: false, player, message: "No hay mochila en ese slot." };
+  }
+
+  const bonus = getBackpackSlotsForItemId(backpackId, lookup);
+  const nextCapacity = player.inventory.length - bonus;
+  if (nextCapacity < BASE_INVENTORY_SLOTS) {
+    return { ok: false, player, message: "No se pudo calcular la capacidad del inventario." };
+  }
+
+  const extraSlots = player.inventory.slice(nextCapacity);
+  if (extraSlots.some((itemId) => itemId !== null)) {
+    return {
+      ok: false,
+      player,
+      message: "Vacia los slots extra antes de desequipar la mochila."
+    };
+  }
+
+  const nextInventory = player.inventory.slice(0, nextCapacity);
+  const emptyInventoryIndex = nextInventory.findIndex((itemId) => itemId === null);
+  if (emptyInventoryIndex === -1) {
+    return { ok: false, player, message: "Inventario lleno." };
+  }
+
+  nextInventory[emptyInventoryIndex] = backpackId;
+  const nextBackpacks = [...player.backpacks];
+  nextBackpacks[backpackSlotIndex] = null;
+
+  return {
+    ok: true,
+    player: {
+      ...player,
+      inventory: nextInventory,
+      backpacks: nextBackpacks
+    },
+    message: "Desequipaste la mochila."
+  };
+};
+
+export const equipItemFromInventory = (
+  player: PlayerProfile,
+  slotIndex: number,
+  item: { id: string; slot: string; nivel?: number }
+): InventoryMutationResult => {
+  const inventoryItemId = player.inventory[slotIndex];
+  if (!inventoryItemId || inventoryItemId !== item.id) {
+    return { ok: false, player, message: "No hay item en ese slot." };
+  }
+
+  const requiredLevel = typeof item.nivel === "number" && Number.isFinite(item.nivel) ? Math.max(1, Math.round(item.nivel)) : 1;
+  if (player.nivel < requiredLevel) {
+    return {
+      ok: false,
+      player,
+      message: `Necesitas nivel ${requiredLevel} para equipar este item.`
+    };
   }
 
   const nextEquipment: HeroEquipment = { ...player.equipment };
-  if (!(equipmentSlot in nextEquipment)) {
-    nextEquipment[equipmentSlot] = null;
+  const equipmentSlotKey = resolveEquipmentSlotKey(item.slot, nextEquipment);
+  if (!equipmentSlotKey) {
+    return { ok: false, player, message: "Este item no se puede equipar." };
   }
 
-  const previouslyEquippedId = nextEquipment[equipmentSlot];
+  if (!(equipmentSlotKey in nextEquipment)) {
+    nextEquipment[equipmentSlotKey] = null;
+  }
+
+  const previouslyEquippedId = nextEquipment[equipmentSlotKey];
   const nextInventory = [...player.inventory];
   nextInventory[slotIndex] = previouslyEquippedId;
-  nextEquipment[equipmentSlot] = item.id;
+  nextEquipment[equipmentSlotKey] = item.id;
 
   return {
     ok: true,
@@ -612,8 +782,11 @@ export const createInitialStats = (): HeroStats => ({
 export const createInitialEquipment = (): HeroEquipment =>
   Object.fromEntries(EQUIPMENT_LAYOUT.filter((slot) => slot.span !== "hidden").map((slot) => [slot.key, null]));
 
+export const createInitialBackpacks = (): (string | null)[] =>
+  Array.from({ length: BACKPACK_SLOT_COUNT }, () => null);
+
 export const createInitialInventory = (): (string | null)[] =>
-  Array.from({ length: INVENTORY_CAPACITY }, () => null);
+  Array.from({ length: BASE_INVENTORY_SLOTS }, () => null);
 
 export const createInitialSecondaryStats = (): HeroSecondaryStats => ({
   probCritico: 1,
@@ -683,18 +856,51 @@ const normalizeSecondaryStats = (raw: unknown): HeroSecondaryStats => {
   };
 };
 
-export const normalizeInventory = (raw: unknown): (string | null)[] => {
-  const slots = createInitialInventory();
+export const normalizeBackpacks = (raw: unknown): (string | null)[] => {
+  const slots = createInitialBackpacks();
   if (!Array.isArray(raw)) {
     return slots;
   }
 
   raw.forEach((entry, index) => {
-    if (index >= INVENTORY_CAPACITY) {
+    if (index >= BACKPACK_SLOT_COUNT) {
       return;
     }
     slots[index] = typeof entry === "string" && entry.trim().length > 0 ? entry.trim() : null;
   });
+
+  return slots;
+};
+
+export const normalizeInventory = (
+  raw: unknown,
+  backpacks: (string | null)[],
+  lookup: BackpackBonusLookup = () => 0,
+  hasPersistedBackpacks = true
+): (string | null)[] => {
+  const parsed = Array.isArray(raw)
+    ? raw.map((entry) => (typeof entry === "string" && entry.trim().length > 0 ? entry.trim() : null))
+    : [];
+
+  let capacity = getInventoryCapacityFromBackpacks(backpacks, lookup);
+
+  if (!hasPersistedBackpacks && parsed.length > 0) {
+    const lastUsedIndex = parsed.reduce((maxIndex, itemId, index) => (itemId ? index : maxIndex), -1);
+    capacity = Math.max(
+      BASE_INVENTORY_SLOTS,
+      Math.min(LEGACY_INVENTORY_CAPACITY, Math.max(capacity, lastUsedIndex + 1))
+    );
+  } else if (parsed.length > 0) {
+    const lastUsedIndex = parsed.reduce((maxIndex, itemId, index) => (itemId ? index : maxIndex), -1);
+    if (lastUsedIndex + 1 > capacity) {
+      capacity = lastUsedIndex + 1;
+    }
+  }
+
+  const slots = parsed.slice(0, capacity);
+  while (slots.length < capacity) {
+    slots.push(null);
+  }
 
   return slots;
 };
@@ -739,6 +945,8 @@ export const parseStoredPlayer = (rawPlayer: string | null): PlayerProfile | nul
 
     const legacyEquipment = player?.equipment;
     const equipment = normalizeEquipment(legacyEquipment);
+    const hasPersistedBackpacks = Array.isArray(player?.backpacks);
+    const backpacks = normalizeBackpacks(player?.backpacks);
     const destinoRaw = player?.destinoInicial;
     const destinoInicial =
       destinoRaw &&
@@ -785,7 +993,8 @@ export const parseStoredPlayer = (rawPlayer: string | null): PlayerProfile | nul
       experiencia: isFiniteNumber(player.experiencia) ? Math.max(0, Math.round(player.experiencia)) : 0,
       reputacionNivel: ranked.reputacionNivel,
       equipment,
-      inventory: normalizeInventory(player.inventory),
+      backpacks,
+      inventory: normalizeInventory(player.inventory, backpacks, () => 0, hasPersistedBackpacks),
       secondaryStats: normalizeSecondaryStats(player.secondaryStats),
       destinoInicial
     } satisfies PlayerProfile;

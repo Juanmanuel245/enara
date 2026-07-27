@@ -5,7 +5,7 @@
     "slot": "mano_principal",
     "rarity": "Comun",
     "cost": 100,
-    "image": "01_hacha_simple.png",
+    "image": "hacha/01_hacha_simple.png",
     "effects": {
       "dano": 1
     },
@@ -17,7 +17,7 @@
     "slot": "mano_principal",
     "rarity": "Comun",
     "cost": 80,
-    "image": "02_hacha_oxidada.png",
+    "image": "hacha/02_hacha_oxidada.png",
     "effects": {
       "agilidad": 1,
       "dano": 2
@@ -30,7 +30,7 @@
     "slot": "mano_principal",
     "rarity": "Comun",
     "cost": 150,
-    "image": "03_hacha_madera.png",
+    "image": "hacha/03_hacha_madera.png",
     "effects": {
       "agilidad": 2,
       "dano": 3
@@ -43,7 +43,7 @@
     "slot": "mano_principal",
     "rarity": "Poco comun",
     "cost": 250,
-    "image": "04_hacha_hierro.png",
+    "image": "hacha/04_hacha_hierro.png",
     "effects": {
       "agilidad": 3,
       "dano": 4
@@ -56,7 +56,7 @@
     "slot": "mano_principal",
     "rarity": "Rara",
     "cost": 300,
-    "image": "05_hacha_barbara.png",
+    "image": "hacha/05_hacha_barbara.png",
     "effects": {
       "agilidad": 5,
       "dano": 5
@@ -69,7 +69,7 @@
     "slot": "mano_principal",
     "rarity": "Legendaria",
     "cost": 5000,
-    "image": "06_hacha_maldita.png",
+    "image": "hacha/06_hacha_maldita.png",
     "effects": {
       "vida": -10,
       "dano": 70,
@@ -83,7 +83,7 @@
     "slot": "mano_principal",
     "rarity": "Legendaria",
     "cost": 5000,
-    "image": "07_hacha_de_fuego.png",
+    "image": "hacha/07_hacha_de_fuego.png",
     "effects": {
       "agilidad": 10,
       "vida": -10,
@@ -97,7 +97,7 @@
     "slot": "mano_principal",
     "rarity": "Legendaria",
     "cost": 5000,
-    "image": "08_hacha_de_hielo.png",
+    "image": "hacha/08_hacha_de_hielo.png",
     "effects": {
       "agilidad": 10,
       "dano": 50,
@@ -111,7 +111,7 @@
     "slot": "mano_principal",
     "rarity": "Legendaria",
     "cost": 5000,
-    "image": "09_hacha_arcana.png",
+    "image": "hacha/09_hacha_arcana.png",
     "effects": {
       "agilidad": 10,
       "dano": 50,

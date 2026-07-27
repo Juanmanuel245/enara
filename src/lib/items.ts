@@ -10,11 +10,23 @@ export type GameItem = {
   cost: number;
   image?: string;
   effects: Partial<Record<keyof HeroStats, number>>;
+  /** Slots de inventario extra que otorga una mochila equipada. */
+  slots?: number;
   dropRatePercent: number;
   isDropping: boolean;
   isSelling: boolean;
+  /** Nivel minimo del heroe para equipar el item. */
   nivel: number;
+  tipo?: string;
+  ovr?: number;
+  isCrafting?: boolean;
+  nombreArchivo?: string;
 };
+
+export type DropOutcome =
+  | { kind: "none" }
+  | { kind: "gold"; amount: number }
+  | { kind: "item"; item: GameItem };
 
 /** @deprecated Usar GameItem */
 export type WeaponItem = GameItem;
@@ -33,21 +45,89 @@ export type ItemRow = {
   agilidad: number;
   salud: number;
   rareza: string;
-  tipo: string;
-  nivel: number;
+  tipo: string | null;
+  ovr: number | null;
+  nivel_minimo: number | null;
+  is_crafting: boolean | null;
+  nombre_archivo: string | null;
+  /** Compatibilidad con esquemas viejos. */
+  nivel?: number | null;
 };
 
 export const ITEM_SELECT_COLUMNS =
-  "id, nombre, valor, drop, is_dropping, is_selling, imagen, slot, ataque, defensa, agilidad, salud, rareza, tipo, nivel";
+  "id, nombre, valor, drop, is_dropping, is_selling, imagen, slot, ataque, defensa, agilidad, salud, rareza, tipo, ovr, nivel_minimo, is_crafting, nombre_archivo";
+
+const ITEMS_IMAGE_BASE = "/items";
+
+/** Completa la ruta publica de imagen cuando el catalogo trae solo tipo/archivo. */
+export const resolveItemImage = (image: string | null | undefined): string => {
+  const value = typeof image === "string" ? image.trim() : "";
+  if (!value) {
+    return "";
+  }
+
+  if (value.startsWith("http://") || value.startsWith("https://") || value.startsWith("data:")) {
+    return value;
+  }
+
+  let path = value.replace(/^public\//, "");
+
+  if (path.startsWith("/items/")) {
+    path = path.slice("/items/".length);
+  } else if (path.startsWith("/")) {
+    return path;
+  }
+
+  if (path.startsWith("items/")) {
+    return `/${path}`;
+  }
+
+  if (!path.includes("/")) {
+    const folderByPattern: [string, string][] = [
+      ["_hacha_", "hacha"],
+      ["_espada_", "espada"],
+      ["_daga_", "daga"],
+      ["_lanza_", "lanza"],
+      ["_maza_", "maza"],
+      ["_orbe_", "orbe"],
+      ["_escudo_", "escudo"],
+      ["_cinturon_", "cinturon"],
+      ["_casco_", "casco"],
+      ["_pechera_", "pechera"],
+      ["_pantalon_", "pantalon"],
+      ["_bota_", "bota"],
+      ["_guantes_", "guante"],
+      ["_guante_", "guante"],
+      ["_hombrera", "hombrera"],
+      ["_hombreras", "hombrera"],
+      ["_capa_", "capa"],
+      ["_brazalete", "brazalete"]
+    ];
+
+    for (const [pattern, folder] of folderByPattern) {
+      if (path.includes(pattern)) {
+        path = `${folder}/${path}`;
+        break;
+      }
+    }
+  }
+
+  return `${ITEMS_IMAGE_BASE}/${path}`;
+};
 
 /** @deprecated Usar ITEM_SELECT_COLUMNS */
 export const ARMA_SELECT_COLUMNS = ITEM_SELECT_COLUMNS;
 
 export const CONSUMABLE_SLOT = "consumible";
+export const BACKPACK_ITEM_SLOT = "mochila";
 
 export const DROP_POOL_SIZE = 100;
-/** Porcentaje de slots vacios en el pool de drop (0-100). Ajusta segun necesites. */
-export const DROP_EMPTY_PERCENT = 10;
+/** Porcentaje de slots vacios en el pool de drop (0-100). */
+export const DROP_EMPTY_PERCENT = 25;
+/** Porcentaje de slots de solo oro en el pool de drop (0-100). */
+export const DROP_GOLD_ONLY_PERCENT = 15;
+/** Oro fijo otorgado cuando cae el outcome de solo oro. */
+export const DROP_GOLD_AMOUNT = 100;
 /** Drop maximo permitido por item (0-100). */
 export const DROP_RATE_MAX_PERCENT = 50;
 /** Niveles por debajo del enemigo incluidos en el pool de drop. */
@@ -100,12 +180,27 @@ export const normalizeItemSlot = (slot: string): string => {
 export const isConsumableItem = (item: Pick<GameItem, "slot">) =>
   normalizeItemSlot(item.slot) === CONSUMABLE_SLOT;
 
+export const isBackpackItem = (item: Pick<GameItem, "slot">) =>
+  normalizeItemSlot(item.slot) === BACKPACK_ITEM_SLOT;
+
+export const getBackpackSlots = (item: Pick<GameItem, "slots">) =>
+  typeof item.slots === "number" && item.slots > 0 ? Math.round(item.slots) : 0;
+
 export const normalizeGameItem = (raw: unknown): GameItem | null => {
   if (!raw || typeof raw !== "object") {
     return null;
   }
 
-  const item = raw as Partial<GameItem & { is_dropping?: boolean; is_selling?: boolean; drop?: number }>;
+  const item = raw as Partial<
+    GameItem & {
+      is_dropping?: boolean;
+      is_selling?: boolean;
+      drop?: number;
+      nivel_minimo?: number;
+      is_crafting?: boolean;
+      nombre_archivo?: string;
+    }
+  >;
   if (typeof item.id !== "string" || typeof item.name !== "string" || typeof item.slot !== "string") {
     return null;
   }
@@ -129,7 +224,30 @@ export const normalizeGameItem = (raw: unknown): GameItem | null => {
       : typeof item.is_selling === "boolean"
         ? item.is_selling
         : false;
-  const nivel = typeof item.nivel === "number" && Number.isFinite(item.nivel) ? Math.max(1, Math.round(item.nivel)) : 1;
+  const nivelRaw =
+    typeof item.nivel === "number"
+      ? item.nivel
+      : typeof item.nivel_minimo === "number"
+        ? item.nivel_minimo
+        : 1;
+  const nivel = Number.isFinite(nivelRaw) ? Math.max(1, Math.round(nivelRaw)) : 1;
+  const slots =
+    typeof item.slots === "number" && Number.isFinite(item.slots)
+      ? Math.max(0, Math.round(item.slots))
+      : undefined;
+  const ovr = typeof item.ovr === "number" && Number.isFinite(item.ovr) ? Math.round(item.ovr) : undefined;
+  const isCrafting =
+    typeof item.isCrafting === "boolean"
+      ? item.isCrafting
+      : typeof item.is_crafting === "boolean"
+        ? item.is_crafting
+        : undefined;
+  const nombreArchivo =
+    typeof item.nombreArchivo === "string"
+      ? item.nombreArchivo
+      : typeof item.nombre_archivo === "string"
+        ? item.nombre_archivo
+        : undefined;
 
   if (
     typeof item.rarity !== "string" ||
@@ -145,12 +263,17 @@ export const normalizeGameItem = (raw: unknown): GameItem | null => {
     slot,
     rarity: item.rarity,
     cost: Math.max(0, Math.round(item.cost)),
-    image: typeof item.image === "string" && item.image.trim().length > 0 ? item.image : undefined,
+    image: typeof item.image === "string" && item.image.trim().length > 0 ? item.image.trim() : undefined,
     effects: normalizeEffects(item.effects),
+    slots,
     dropRatePercent: clamp(dropRatePercent, 0, DROP_RATE_MAX_PERCENT),
     isDropping,
     isSelling,
-    nivel
+    nivel,
+    tipo: typeof item.tipo === "string" && item.tipo.trim().length > 0 ? item.tipo.trim() : undefined,
+    ovr,
+    isCrafting,
+    nombreArchivo
   };
 };
 
@@ -176,20 +299,33 @@ const buildItemEffects = (row: ItemRow): GameItem["effects"] => {
   return effects;
 };
 
-export const mapItemRowToGameItem = (row: ItemRow): GameItem | null =>
-  normalizeGameItem({
+export const mapItemRowToGameItem = (row: ItemRow): GameItem | null => {
+  const nivelMinimo =
+    typeof row.nivel_minimo === "number"
+      ? row.nivel_minimo
+      : typeof row.nivel === "number"
+        ? row.nivel
+        : 1;
+  const imagePath = row.imagen?.trim() || (row.nombre_archivo && row.tipo ? `${row.tipo}/${row.nombre_archivo}` : undefined);
+
+  return normalizeGameItem({
     id: String(row.id),
     name: row.nombre,
     slot: normalizeItemSlot(row.slot),
     rarity: row.rareza,
     cost: row.valor,
-    image: row.imagen ?? undefined,
+    image: imagePath,
     effects: buildItemEffects(row),
     dropRatePercent: row.drop,
     isDropping: row.is_dropping,
     isSelling: row.is_selling,
-    nivel: row.nivel
+    nivel: nivelMinimo,
+    tipo: row.tipo ?? undefined,
+    ovr: row.ovr ?? undefined,
+    isCrafting: row.is_crafting ?? undefined,
+    nombreArchivo: row.nombre_archivo ?? undefined
   });
+};
 
 /** @deprecated Usar mapItemRowToGameItem */
 export const mapArmaRowToWeaponItem = mapItemRowToGameItem;
@@ -208,10 +344,15 @@ export const mapItemRowToJson = (row: ItemRow) => {
     cost: item.cost,
     image: item.image,
     effects: item.effects,
+    slots: item.slots,
     dropRatePercent: item.dropRatePercent,
     isDropping: item.isDropping,
     isSelling: item.isSelling,
-    nivel: item.nivel
+    nivel: item.nivel,
+    tipo: item.tipo,
+    ovr: item.ovr,
+    isCrafting: item.isCrafting,
+    nombreArchivo: item.nombreArchivo
   };
 };
 
@@ -272,24 +413,36 @@ export const getDropEligibleItems = (
   );
 };
 
+export type DropPoolEntry = { kind: "none" } | { kind: "gold" } | { kind: "item"; item: GameItem };
+
 export const buildDropPool = (
   items: GameItem[],
   enemy: { nivel: number; drop_bonus: number }
-): (GameItem | null)[] => {
+): DropPoolEntry[] => {
+  const emptyCount = Math.round(DROP_POOL_SIZE * (clamp(DROP_EMPTY_PERCENT, 0, 100) / 100));
+  const goldCount = Math.round(DROP_POOL_SIZE * (clamp(DROP_GOLD_ONLY_PERCENT, 0, 100) / 100));
+  const itemSlotCount = Math.max(0, DROP_POOL_SIZE - emptyCount - goldCount);
+  const pool: DropPoolEntry[] = [
+    ...Array.from({ length: emptyCount }, () => ({ kind: "none" as const })),
+    ...Array.from({ length: goldCount }, () => ({ kind: "gold" as const }))
+  ];
+
   const eligible = getDropEligibleItems(items, enemy);
-  if (eligible.length === 0) {
-    return Array.from({ length: DROP_POOL_SIZE }, () => null);
+  if (eligible.length === 0 || itemSlotCount <= 0 || enemy.drop_bonus <= 0) {
+    while (pool.length < DROP_POOL_SIZE) {
+      pool.push({ kind: "none" });
+    }
+    return pool.slice(0, DROP_POOL_SIZE);
   }
 
   const weights = eligible.map((item) => item.dropRatePercent * enemy.drop_bonus);
   const totalWeight = weights.reduce((sum, weight) => sum + weight, 0);
   if (totalWeight <= 0) {
-    return Array.from({ length: DROP_POOL_SIZE }, () => null);
+    while (pool.length < DROP_POOL_SIZE) {
+      pool.push({ kind: "none" });
+    }
+    return pool.slice(0, DROP_POOL_SIZE);
   }
-
-  const emptyCount = Math.round(DROP_POOL_SIZE * (clamp(DROP_EMPTY_PERCENT, 0, 100) / 100));
-  const itemSlotCount = DROP_POOL_SIZE - emptyCount;
-  const pool: (GameItem | null)[] = Array.from({ length: emptyCount }, () => null);
 
   let assigned = 0;
   eligible.forEach((item, index) => {
@@ -299,28 +452,43 @@ export const buildDropPool = (
       : Math.max(0, Math.round((weights[index] / totalWeight) * itemSlotCount));
     assigned += count;
     for (let slot = 0; slot < count; slot += 1) {
-      pool.push(item);
+      pool.push({ kind: "item", item });
     }
   });
 
   while (pool.length < DROP_POOL_SIZE) {
-    pool.push(null);
+    pool.push({ kind: "none" });
   }
 
   return pool.slice(0, DROP_POOL_SIZE);
+};
+
+export const rollDropOutcome = (
+  items: GameItem[],
+  enemy: { nivel: number; drop_bonus: number }
+): DropOutcome => {
+  const pool = buildDropPool(items, enemy);
+  if (pool.length === 0) {
+    return { kind: "none" };
+  }
+
+  const picked = pool[Math.floor(Math.random() * pool.length)];
+  if (picked.kind === "gold") {
+    return { kind: "gold", amount: DROP_GOLD_AMOUNT };
+  }
+  if (picked.kind === "item") {
+    return { kind: "item", item: picked.item };
+  }
+
+  return { kind: "none" };
 };
 
 export const rollDroppedItem = (
   items: GameItem[],
   enemy: { nivel: number; drop_bonus: number }
 ): GameItem | null => {
-  const pool = buildDropPool(items, enemy);
-  if (pool.length === 0) {
-    return null;
-  }
-
-  const picked = pool[Math.floor(Math.random() * pool.length)];
-  return picked ?? null;
+  const outcome = rollDropOutcome(items, enemy);
+  return outcome.kind === "item" ? outcome.item : null;
 };
 
 export const findItemById = (items: GameItem[], itemId: string | null | undefined) =>
